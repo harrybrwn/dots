@@ -1,4 +1,4 @@
-GOFLAGS=-trimpath -ldflags "-s -w"
+GOFLAGS=-trimpath -ldflags "-s -w -X 'github.com/harrybrwn/dots/cli.completions=false'"
 NAME=$(shell basename $$PWD)
 SOURCE=$(shell find . -name '*.go')
 COMP=release/completion
@@ -9,24 +9,34 @@ build: $(BIN) gen
 clean:
 	$(RM) -r release
 
-# completion: $(COMP)/bash/$(NAME) $(COMP)/zsh/_$(NAME) $(COMP)/fish/$(NAME).fish
 gen completion man:
 	go run ./gen
 
-install:
+ZSH_COMP=~/.config/zsh/oh-my-zsh/completions
+BASH_COMP=~/.local/share/bash-completion/completions
+
+install: $(BIN) gen
+	@if [ ! -d $(BASH_COMP) ]; then mkdir -p $(BASH_COMP); fi
+	@if [ ! -d $(ZSH_COMP) ];  then mkdir -p $(ZSH_COMP);  fi
 	go install $(GOFLAGS)
-	sudo cp $(COMP)/zsh/_$(NAME) /usr/share/zsh/vendor-completions/
-	sudo cp $(COMP)/bash/$(NAME) /usr/share/bash-completion/completions
+	cp $(COMP)/bash/$(NAME) $(BASH_COMP)
+	cp $(COMP)/zsh/_$(NAME) $(ZSH_COMP)
 
 uninstall:
 	go clean -i
-	sudo $(RM) /usr/share/bash-completion/completions/$(NAME)
-	sudo $(RM) /usr/share/zsh/vendor-completions/_$(NAME)
+	$(RM) $(ZSH_COMP)/_$(NAME)
+	$(RM) $(BASH_COMP)/$(NAME)
 
 .PHONY: build clean gen completion man install uninstall
 
+image:
+	docker image build -t dots:latest -f ./Dockerfile .
+
+docker:
+	docker container run -v $(shell pwd):/dots --rm -it dots sh
+
 $(BIN): $(SOURCE)
-	go build $(GOFLAGS) -o $@
+	CGO_ENABLED=0 go build $(GOFLAGS) -o $@
 
 $(COMP)/zsh/_$(NAME): $(COMP)/zsh $(BIN)
 	$(BIN) completion zsh > $@
@@ -39,5 +49,3 @@ $(COMP)/fish/$(NAME).fish: $(COMP)/fish $(BIN)
 
 $(COMP)/bash $(COMP)/zsh $(COMP)/fish:
 	mkdir -p $@
-
-
