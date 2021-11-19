@@ -3,9 +3,7 @@ package cli
 import (
 	"errors"
 	"fmt"
-	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -181,10 +179,9 @@ func NewUtilCmd(opts *Options) *cobra.Command {
 	c.AddCommand(
 		NewGetCmd(opts),
 		&cobra.Command{
-			Use:     "set-identity-file <file>",
-			Short:   "Set an ssh identity file to be used on every remote operation.",
-			Aliases: []string{"set-ssh-key"},
-			Args:    cobra.ExactArgs(1),
+			Use:   "set-ssh-key <file>",
+			Short: "Set an ssh identity file to be used on every remote operation.",
+			Args:  cobra.ExactArgs(1),
 			RunE: func(cmd *cobra.Command, args []string) error {
 				g := opts.git()
 				return g.Cmd(
@@ -226,7 +223,11 @@ func NewGetCmd(opts *Options) *cobra.Command {
 			git := git.New(filepath.Join(opts.ConfigDir, repo), cwd)
 			return git.Cmd("checkout", "--", args[0]).Run()
 		},
-		ValidArgsFunction: func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+		ValidArgsFunction: func(
+			cmd *cobra.Command,
+			args []string,
+			toComplete string,
+		) ([]string, cobra.ShellCompDirective) {
 			git := opts.git()
 			files, err := git.LsFiles()
 			if err != nil {
@@ -257,9 +258,7 @@ func newTestCmd(opts *Options) *cobra.Command {
 		Use:    "test",
 		Hidden: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			git := git.New(opts.repo(), opts.Root)
-			c := git.Cmd("ls-tree", "HEAD", "-r", "--full-tree", "--name-status")
-			return c.Run()
+			return nil
 		},
 	}
 }
@@ -309,24 +308,6 @@ func configdir() string {
 		return filepath.Join(dir, "."+name)
 	}
 	return ""
-}
-
-func page(stdout io.Writer, in io.Reader) error {
-	pager, ok := os.LookupEnv("PAGER")
-	if !ok {
-		pager = "less"
-	}
-	cmd := exec.Command(pager)
-	cmd.Stdout = stdout
-	stdin, err := cmd.StdinPipe()
-	if err != nil {
-		return err
-	}
-	go func() {
-		defer stdin.Close()
-		io.Copy(stdin, in)
-	}()
-	return cmd.Run()
 }
 
 func exists(path string) bool {

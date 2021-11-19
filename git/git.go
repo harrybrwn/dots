@@ -1,6 +1,7 @@
 package git
 
 import (
+	"bufio"
 	"bytes"
 	"errors"
 	"fmt"
@@ -8,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 )
 
@@ -101,6 +103,113 @@ func (g *Git) ModifiedFiles() ([]string, error) {
 		return nil, err
 	}
 	return lines(buf.String()), nil
+}
+
+func (g *Git) Files() ([]*Object, error) {
+	var buf bytes.Buffer
+	c := g.Cmd("ls-tree", "HEAD", "-r", "-l", "-t", "--full-tree")
+	c.Stdout = &buf
+	err := c.Run()
+	if err != nil {
+		return nil, err
+	}
+	var (
+		i, j   int
+		fields [4]string
+		sc     = bufio.NewScanner(&buf)
+		files  = make([]*Object, 0)
+	)
+	for sc.Scan() {
+		var (
+			line = sc.Text()
+			f    Object
+		)
+		i = strings.IndexByte(line, '\t')
+		f.Name = line[i+1:]
+		parts := strings.Split(line[:i], " ")
+		j = 0
+		for _, s := range parts {
+			if len(s) == 0 {
+				continue
+			}
+			fields[j] = s
+			j++
+		}
+		f.Mode, err = parseMode(fields[0])
+		if err != nil {
+			return nil, err
+		}
+		f.Type = objectType(fields[1])
+		f.Hash = fields[2]
+		if f.Type == ObjBlob {
+			f.Size, err = strconv.ParseInt(fields[3], 10, 64)
+			if err != nil {
+				return nil, err
+			}
+		}
+		files = append(files, &f)
+	}
+	return files, nil
+}
+
+type ModifiedFile struct {
+	Name     string
+	Type     byte
+	Src, Dst Modification
+}
+
+type Modification struct {
+	Mode int    // file mode
+	Hash string // sha1
+}
+
+func (g *Git) Modifications() ([]*ModifiedFile, error) {
+	var buf bytes.Buffer
+	c := g.Cmd("diff-index", "HEAD")
+	c.Stdout = &buf
+	err := c.Run()
+	if err != nil {
+		return nil, err
+	}
+	var (
+		i     int
+		sc    = bufio.NewScanner(&buf)
+		files = make([]*ModifiedFile, 0)
+	)
+	for sc.Scan() {
+		var (
+			f    ModifiedFile
+			line = sc.Text()
+		)
+		if line[0] != ':' {
+			return nil, errors.New("did not find a ':' at the front of each line")
+		}
+		i = strings.IndexByte(line, '\t')
+		f.Name = line[i+1:]
+		// Split the line but exclude the colon and the filename
+		parts := strings.Split(line[1:i], " ")
+		f.Src.Mode, err = parseMode(parts[0])
+		if err != nil {
+			return nil, err
+		}
+		f.Dst.Mode, err = parseMode(parts[1])
+		if err != nil {
+			return nil, err
+		}
+		f.Src.Hash = parts[2]
+		f.Dst.Hash = parts[3]
+		f.Type = parts[4][0]
+		files = append(files, &f)
+	}
+	return files, nil
+}
+
+func parseMode(s string) (int, error) {
+	m, err := strconv.ParseUint(s, 8, 64)
+	if err != nil {
+		return 0, err
+	}
+	return int(m), nil
 }
 
 type Config map[string]interface{}

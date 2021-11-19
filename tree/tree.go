@@ -19,7 +19,10 @@ type Node struct {
 	Type     NodeType
 	Name     string
 	children map[string]*Node
+	path     []string
 }
+
+func (n *Node) Path() string { return filepath.Join(n.path...) }
 
 func New(files []string) *Node {
 	if len(files) == 0 {
@@ -72,16 +75,16 @@ func ColorFolders(n *Node) string {
 func NoColor(*Node) string { return "" }
 
 func expand(parts []string, tree *Node) {
-	if tree == nil {
+	if tree == nil || len(parts) == 0 {
 		return
 	}
 	if len(parts) == 1 {
-		tree.insertChild(createNode(parts[0], LeafNode))
-		return
+		child := createNode(tree, parts[0], LeafNode)
+		tree.insertChild(child)
 	}
 	child, ok := tree.children[parts[0]]
 	if !ok {
-		child = createNode(parts[0], TreeNode)
+		child = createNode(tree, parts[0], TreeNode)
 		tree.insertChild(child)
 	}
 	expand(parts[1:], child)
@@ -144,8 +147,12 @@ func count(root *Node) int {
 	return n
 }
 
-func createNode(name string, tp NodeType) *Node {
-	return &Node{Name: name, Type: tp}
+func createNode(parent *Node, name string, tp NodeType) *Node {
+	n := &Node{Name: name, Type: tp}
+	if parent != nil {
+		n.path = append(parent.path, parent.Name)
+	}
+	return n
 }
 
 func (n *Node) getChildren() []*Node {
