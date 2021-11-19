@@ -19,6 +19,8 @@ const (
 	repo = "repo"
 )
 
+var completions string
+
 type Options struct {
 	Root      string // Root of user-added files
 	ConfigDir string // Internal config folder
@@ -36,7 +38,7 @@ func NewRootCmd() *cobra.Command {
 			SilenceErrors: true,
 			SilenceUsage:  true,
 			CompletionOptions: cobra.CompletionOptions{
-				DisableDefaultCmd: true,
+				DisableDefaultCmd: completions == "false",
 			},
 		}
 	)
