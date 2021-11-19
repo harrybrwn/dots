@@ -11,10 +11,14 @@ import (
 	"golang.org/x/term"
 )
 
+type lsFlags struct {
+	*Options
+	flat    bool
+	noPager bool
+}
+
 func NewLSCmd(opts *Options) *cobra.Command {
-	var (
-		flat bool
-	)
+	flags := lsFlags{Options: opts}
 	c := &cobra.Command{
 		Use:   "ls",
 		Short: "List the files being tracked",
@@ -24,38 +28,39 @@ func NewLSCmd(opts *Options) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if flat {
-				return listFlat(cmd.OutOrStdout(), files)
+			if flags.flat {
+				return listFlat(cmd.OutOrStdout(), files, &flags)
 			}
-			return listTree(cmd.OutOrStdout(), files, opts.NoColor)
+			return listTree(cmd.OutOrStdout(), files, &flags)
 		},
 	}
-	flags := c.Flags()
-	flags.BoolVar(&flat, "flat", flat, "print as flat list")
+	f := c.Flags()
+	f.BoolVar(&flags.flat, "flat", flags.flat, "print as flat list")
+	f.BoolVar(&flags.noPager, "no-pager", flags.noPager, "disable the automatic pager")
 	return c
 }
 
-func listTree(out io.Writer, files []string, nocolor bool) error {
+func listTree(out io.Writer, files []string, flags *lsFlags) error {
 	var tr = tree.New(files)
 	_, height, err := term.GetSize(0)
 	if err != nil {
 		return err
 	}
-	if tree.PrintHeight(tr) > height {
+	fn := tree.ColorFolders
+	if flags.NoColor {
+		fn = tree.NoColor
+	}
+	if !flags.noPager && tree.PrintHeight(tr) > height {
 		var buf bytes.Buffer
-		if err = tree.Print(&buf, tr); err != nil {
+		if err = tree.PrintColor(&buf, tr, fn); err != nil {
 			return err
 		}
 		return page(out, &buf)
 	}
-	fn := tree.ColorFolders
-	if nocolor {
-		fn = tree.NoColor
-	}
-	return tree.PrintColor(out, tr, tree.ColorFolders)
+	return tree.PrintColor(out, tr, fn)
 }
 
-func listFlat(out io.Writer, files []string) error {
+func listFlat(out io.Writer, files []string, flags *lsFlags) error {
 	_, height, err := term.GetSize(0)
 	if err != nil {
 		return err
@@ -67,7 +72,7 @@ func listFlat(out io.Writer, files []string) error {
 			return err
 		}
 	}
-	if len(files) > height {
+	if !flags.noPager && len(files) > height {
 		return page(out, &buf)
 	}
 	_, err = io.Copy(out, &buf)
