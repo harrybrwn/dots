@@ -47,36 +47,14 @@ func NewLSCmd(opts *Options) *cobra.Command {
 	return c
 }
 
-func listTree(out io.Writer, files []string, mods map[string]byte, flags *lsFlags) error {
+func listTree(out io.Writer, files []string, mods modSet, flags *lsFlags) error {
 	var tr = tree.New(files)
 	_, height, err := term.GetSize(0)
 	if !flags.noPager && err != nil {
 		fmt.Fprintf(os.Stderr, "Could not get terminal size: %v\n", err)
 		return err
 	}
-	fn := func(n *tree.Node) string {
-		switch n.Type {
-		case tree.LeafNode:
-			p := filepath.Join(n.Path(), n.Name)
-			t, ok := mods[p[1:]]
-			if ok {
-				col := 33
-				switch t {
-				case 'D':
-					col = 31
-				case 'M':
-					col = 33
-				}
-				return fmt.Sprintf("\x1b[01;%dm%c \x1b[0m", col, t)
-			}
-			return ""
-		case tree.TreeNode:
-			return "\x1b[01;34m"
-		default:
-			return ""
-		}
-	}
-	// fn = tree.ColorFolders
+	fn := mods.treeColor
 	if flags.NoColor {
 		fn = tree.NoColor
 	}
@@ -110,7 +88,10 @@ func listFlat(out io.Writer, files []string, flags *lsFlags) error {
 }
 
 func page(stdout io.Writer, in io.Reader) error {
-	var pager string
+	var (
+		pager string
+		args  = make([]string, 0)
+	)
 	p, ok := os.LookupEnv("GIT_PAGER")
 	if ok {
 		pager = p
@@ -121,7 +102,10 @@ func page(stdout io.Writer, in io.Reader) error {
 		}
 		pager = p
 	}
-	cmd := exec.Command(pager)
+	if pager == "less" {
+		args = append(args, "--raw-control-chars")
+	}
+	cmd := exec.Command(pager, args...)
 	cmd.Stdout = stdout
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
@@ -138,10 +122,38 @@ func page(stdout io.Writer, in io.Reader) error {
 	return nil
 }
 
-func modifiedSet(g *git.Git) (map[string]byte, error) {
-	m := make(map[string]byte)
+type modSet map[string]git.ModType
+
+func (ms modSet) treeColor(n *tree.Node) string {
+	switch n.Type {
+	case tree.LeafNode:
+		p := filepath.Join(n.Path(), n.Name)
+		t, ok := ms[p[1:]]
+		if ok {
+			col := 33
+			switch t {
+			case 'D':
+				col = 31
+			case 'M':
+				col = 33
+			case git.ModAddition, git.ModRename:
+				col = 32
+			case git.ModUnmerged:
+				col = 35
+			}
+			return fmt.Sprintf("\x1b[01;%dm%c \x1b[0m", col, t)
+		}
+		return ""
+	case tree.TreeNode:
+		return "\x1b[01;34m"
+	default:
+		return ""
+	}
+}
+
+func modifiedSet(g *git.Git) (modSet, error) {
+	m := make(modSet)
 	files, err := g.Modifications()
-	// files, err := g.ModifiedFiles()
 	if err != nil {
 		return nil, err
 	}

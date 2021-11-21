@@ -152,13 +152,28 @@ func (g *Git) Files() ([]*Object, error) {
 	return files, nil
 }
 
+// ModType is the type of modification that has been made to an object.
+// See `git help diff-index`
+type ModType byte
+
+const (
+	ModAddition ModType = 'A' // addition of a file
+	ModCopy     ModType = 'C' // copy of a file into a new one
+	ModDelete   ModType = 'D' // deletion of a file
+	ModChanged  ModType = 'M' // modification of file contents of file mode
+	ModRename   ModType = 'R' // file renamed
+	ModFileType ModType = 'T' // change in the type of file
+	ModUnmerged ModType = 'U' // file is unmerged (you must complete the merge before it can be committed)
+	ModUnknown  ModType = 'X' // this should not happen, indicator of possible bug in git
+)
+
 type ModifiedFile struct {
 	Name     string
-	Type     byte
-	Src, Dst Modification
+	Type     ModType
+	Src, Dst ObjModification
 }
 
-type Modification struct {
+type ObjModification struct {
 	Mode int    // file mode
 	Hash string // sha1
 }
@@ -198,7 +213,7 @@ func (g *Git) Modifications() ([]*ModifiedFile, error) {
 		}
 		f.Src.Hash = parts[2]
 		f.Dst.Hash = parts[3]
-		f.Type = parts[4][0]
+		f.Type = ModType(parts[4][0])
 		files = append(files, &f)
 	}
 	return files, nil
@@ -210,6 +225,19 @@ func parseMode(s string) (int, error) {
 		return 0, err
 	}
 	return int(m), nil
+}
+
+func (g *Git) HasRemote() bool {
+	var (
+		b   bytes.Buffer
+		cmd = g.Cmd("remote")
+	)
+	cmd.Stdout = &b
+	err := cmd.Run()
+	if err != nil {
+		return false
+	}
+	return b.Len() > 0
 }
 
 type Config map[string]interface{}

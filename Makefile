@@ -21,11 +21,13 @@ install: $(BIN) gen
 	go install $(GOFLAGS)
 	cp $(COMP)/bash/$(NAME) $(BASH_COMP)
 	cp $(COMP)/zsh/_$(NAME) $(ZSH_COMP)
+	cp release/man/dots* ~/.local/share/man/man1/
 
 uninstall:
 	go clean -i
 	$(RM) $(ZSH_COMP)/_$(NAME)
 	$(RM) $(BASH_COMP)/$(NAME)
+	$(RM) ~/.local/share/man/man1/dots*
 
 .PHONY: build clean gen completion man install uninstall
 
@@ -34,6 +36,9 @@ image:
 
 docker:
 	docker container run -v $(shell pwd):/dots --rm -it dots sh
+
+docker-test:
+	docker container run -v $(shell pwd):/dots --rm -it dots sh /dots/test/test.sh
 
 $(BIN): $(SOURCE)
 	CGO_ENABLED=0 go build $(GOFLAGS) -o $@
