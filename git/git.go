@@ -37,16 +37,19 @@ type Git struct {
 }
 
 func (g *Git) Cmd(args ...string) *exec.Cmd {
-	arguments := make([]string, 4, 4+len(args))
+	arguments := make([]string, 4, 4+len(args)+len(g.args))
 	arguments[0] = "--git-dir"
 	arguments[1] = g.gitDir
 	arguments[2] = "--work-tree"
 	arguments[3] = g.workTree
+	arguments = append(arguments, g.args...)
 	arguments = append(arguments, args...)
 	cmd := exec.Command(gitExec, arguments...)
 	g.setDefaultIO(cmd)
 	return cmd
 }
+
+func (g *Git) RunCmd(args ...string) error { return run(g.Cmd(args...)) }
 
 func (g *Git) Exists() bool {
 	return exists(g.gitDir) && isGitDir(g.gitDir)
@@ -57,13 +60,26 @@ func (g *Git) InitBare() error { return initBareRepo(g.gitDir) }
 
 // WorkingTree will return the repositories working tree.
 func (g *Git) WorkingTree() string { return g.workTree }
-func (g *Git) GitDir() string      { return g.gitDir }
+
+// GitDir will return the git directory.
+func (g *Git) GitDir() string { return g.gitDir }
+
+func (g *Git) SetWorkingTree(path string) { g.workTree = path }
+func (g *Git) SetGitDir(path string)      { g.gitDir = path }
+
+// SetPersistentArgs will set an array of arguments passed internally to the git
+// command whenever the Cmd function is called.
+func (g *Git) SetPersistentArgs(args []string) { g.args = args }
+
+// AppendPersistentArgs will append to the array of arguments passed internally
+// to the git command whenever the Cmd function is called.
+func (g *Git) AppendPersistendArgs(args ...string) { g.args = append(g.args, args...) }
 
 func (g *Git) Add(paths ...string) error {
 	if len(paths) == 0 {
 		paths = append(paths, ".")
 	}
-	return g.Cmd(append([]string{"add"}, paths...)...).Run()
+	return run(g.Cmd(append([]string{"add"}, paths...)...))
 }
 
 func (g *Git) Remove(files ...string) error {
@@ -85,7 +101,7 @@ func (g *Git) LsFiles() ([]string, error) {
 		cmd = g.Cmd("ls-tree", "--full-tree", "-r", "--name-only", "HEAD")
 	)
 	cmd.Stdout = &buf
-	err := cmd.Run()
+	err := run(cmd)
 	if err != nil {
 		return nil, err
 	}
@@ -98,7 +114,7 @@ func (g *Git) ModifiedFiles() ([]string, error) {
 		cmd = g.Cmd("diff-files", "--name-only")
 	)
 	cmd.Stdout = &buf
-	err := cmd.Run()
+	err := run(cmd)
 	if err != nil {
 		return nil, err
 	}
@@ -106,10 +122,12 @@ func (g *Git) ModifiedFiles() ([]string, error) {
 }
 
 func (g *Git) Files() ([]*Object, error) {
-	var buf bytes.Buffer
-	c := g.Cmd("ls-tree", "HEAD", "-r", "-l", "-t", "--full-tree")
+	var (
+		buf bytes.Buffer
+		c   = g.Cmd("ls-tree", "HEAD", "-r", "-t", "--long", "--full-tree")
+	)
 	c.Stdout = &buf
-	err := c.Run()
+	err := run(c)
 	if err != nil {
 		return nil, err
 	}
@@ -182,7 +200,7 @@ func (g *Git) Modifications() ([]*ModifiedFile, error) {
 	var buf bytes.Buffer
 	c := g.Cmd("diff-index", "HEAD")
 	c.Stdout = &buf
-	err := c.Run()
+	err := run(c)
 	if err != nil {
 		return nil, err
 	}
@@ -217,6 +235,18 @@ func (g *Git) Modifications() ([]*ModifiedFile, error) {
 		files = append(files, &f)
 	}
 	return files, nil
+}
+
+func (g *Git) ModifiedSet() (map[string]*ModifiedFile, error) {
+	mods, err := g.Modifications()
+	if err != nil {
+		return nil, err
+	}
+	set := make(map[string]*ModifiedFile, len(mods))
+	for _, m := range mods {
+		set[m.Name] = m
+	}
+	return set, nil
 }
 
 func parseMode(s string) (int, error) {
@@ -255,11 +285,11 @@ func (g *Git) ConfigGlobal() (Config, error) {
 }
 
 func (g *Git) ConfigSet(key, value string) error {
-	return g.Cmd("config", key, value).Run()
+	return run(g.Cmd("config", key, value))
 }
 
 func (g *Git) ConfigLocalSet(key, value string) error {
-	return g.Cmd("config", "--local", key, value).Run()
+	return run(g.Cmd("config", "--local", key, value))
 }
 
 func (g *Git) SetArgs(arguments ...string) { g.args = arguments }
@@ -279,7 +309,7 @@ func (g *Git) config(flags ...string) (Config, error) {
 		args[i+1] = flags[i]
 	}
 	cmd.Stdout = &buf
-	err := cmd.Run()
+	err := run(cmd)
 	if err != nil {
 		return nil, err
 	}
@@ -292,6 +322,26 @@ func (g *Git) config(flags ...string) (Config, error) {
 		m[parts[0]] = parts[1]
 	}
 	return m, nil
+}
+
+func (g *Git) CurrentBranch() (string, error) {
+	f, err := os.OpenFile(filepath.Join(g.gitDir, "HEAD"), os.O_RDONLY, 0644)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+	b, err := io.ReadAll(f)
+	if err != nil {
+		return "", err
+	}
+	if b[len(b)-1] == '\n' {
+		b = b[:len(b)-1]
+	}
+	if bytes.HasPrefix(b, []byte("ref: ")) {
+		b = bytes.Replace(b, []byte("ref: "), nil, -1)
+		return filepath.Base(string(b)), nil
+	}
+	return string(b), nil
 }
 
 func lines(s string) []string {
@@ -380,16 +430,17 @@ func writeToFile(filename string, data string) error {
 }
 
 func (g *Git) setDefaultIO(cmd *exec.Cmd) {
-	if g.stdout == nil {
-		g.stdout = os.Stdout
-	}
-	if g.stderr == nil {
-		g.stderr = os.Stderr
-	}
-	if g.stdin == nil {
-		g.stdin = os.Stdin
-	}
 	cmd.Stdout = g.stdout
 	cmd.Stderr = g.stderr
 	cmd.Stdin = g.stdin
+}
+
+func run(cmd *exec.Cmd) error {
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	err := cmd.Run()
+	if err != nil {
+		return fmt.Errorf("%s: %w", strings.Trim(stderr.String(), "\n"), err)
+	}
+	return nil
 }

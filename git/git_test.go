@@ -32,6 +32,9 @@ func TestLsTree(t *testing.T) {
 	tmp := t.TempDir()
 	gd, tr := dirs(tmp)
 	git := New(gd, tr)
+	git.SetOut(io.Discard)
+	git.SetErr(io.Discard)
+	git.SetPersistentArgs([]string{"-c", "commit.gpgsign=false"})
 	err := git.InitBare()
 	if err != nil {
 		t.Fatal(err)
@@ -40,13 +43,9 @@ func TestLsTree(t *testing.T) {
 	if err = touch(path); err != nil {
 		t.Fatal(err)
 	}
-	git.stdout = os.Stdout
-	git.stderr = os.Stderr
-	git.stdin = os.Stdin
 	if err = git.Add(path); err != nil {
 		t.Fatal(err)
 	}
-	git.stdout = nil
 	err = git.Commit("first commit")
 	if err != nil {
 		t.Fatal(err)
@@ -64,6 +63,9 @@ func TestModifiedFiles(t *testing.T) {
 	tmp := t.TempDir()
 	gd, tr := dirs(tmp)
 	git := New(gd, tr)
+	git.SetOut(io.Discard)
+	git.SetErr(io.Discard)
+	git.SetPersistentArgs([]string{"-c", "commit.gpgsign=false"})
 	err := setupTestRepo(
 		git,
 		newfile("test.txt", "this is a test"),
@@ -72,7 +74,6 @@ func TestModifiedFiles(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	fmt.Println(git.Exists())
 	if err = git.Add("test.txt", "x"); err != nil {
 		t.Fatal(err)
 	}
@@ -92,13 +93,91 @@ func TestModifiedFiles(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	fmt.Println(files)
 	if len(files) == 0 {
 		t.Fatal("there should be one modified file")
 	}
 	if files[0] != "test.txt" {
 		t.Error("wrong file is being showed as modified")
 	}
+}
+
+func TestPrintFile(t *testing.T) {
+	// So, when running 'git checkout -- ./some/file' it marks that file as
+	// modified when it was not. This is a test to figure out why this happens
+	// and if I can stop it from happening.
+	git := testgit(t)
+	err := setupTestRepo(
+		git,
+		newfile("one", "this is the first"),
+		newfile("two", "this is the second"),
+		newfile("three", "this is the third"),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, err = range []error{
+		git.Add("."), git.Commit("x"),
+		// appendfile(filepath.Join(git.WorkingTree(), "one"), "\nand this is on the second line"),
+	} {
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	git.SetOut(os.Stdout)
+	git.SetErr(os.Stderr)
+
+	tree := git.WorkingTree()
+	tree2 := filepath.Join(filepath.Dir(git.WorkingTree()), "tree2")
+	os.Mkdir(tree2, 0755)
+	git.SetWorkingTree(tree2)
+	// fmt.Println(git.Cmd().Args)
+	err = git.Cmd("checkout", "--", "one").Run()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	git.SetWorkingTree(tree)
+	// files, err := git.Modifications()
+	// if err != nil {
+	// 	t.Fatal(err)
+	// }
+	// for _, f := range files {
+	// 	fmt.Println(f)
+	// }
+	// println()
+
+	// cmd := git.Cmd("--no-pager", "diff-files")
+	// cmd.Stderr = nil
+	// cmd.Stdout = nil
+	// cmd.Run()
+
+	// git.Cmd("--no-pager", "diff-tree", "-r", "HEAD").Run()
+	git.Cmd("--no-pager", "diff", "--name-only").Run()
+	// git.Cmd("diff-tree", "HEAD", "-r", "--stat", "--full-index", "--text").Run()
+	// git.Cmd("symbolic-ref", "--short", "--quiet", "HEAD").Run()
+	// git.Cmd("rev-parse", "--short", "HEAD").Run()
+
+	// println()
+	files, err := git.Modifications()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(files) != 0 {
+		t.Error("here should be no modified files")
+		for _, f := range files {
+			fmt.Println(f)
+		}
+	}
+}
+
+func testgit(t *testing.T) *Git {
+	tmp := t.TempDir()
+	gd, tr := dirs(tmp)
+	git := New(gd, tr)
+	git.SetOut(io.Discard)
+	git.SetErr(io.Discard)
+	git.SetPersistentArgs([]string{"-c", "commit.gpgsign=false"})
+	return git
 }
 
 func touch(filename string) error {
@@ -111,11 +190,7 @@ func touch(filename string) error {
 
 func setupTestRepo(g *Git, files ...fs.File) (err error) {
 	if !g.Exists() {
-		// if err = g.InitBare(); err != nil {
-		// 	return err
-		// }
-		err = g.Cmd("init", "--bare").Run()
-		if err != nil {
+		if err = g.InitBare(); err != nil {
 			return err
 		}
 	}
@@ -149,6 +224,16 @@ func newfile(name, content string) fs.File {
 		name: name,
 		b:    *bytes.NewBuffer([]byte(content)),
 	}
+}
+
+func appendfile(name, content string) error {
+	f, err := os.OpenFile(name, os.O_APPEND|os.O_WRONLY, 0644)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	_, err = f.WriteString(content)
+	return err
 }
 
 type file struct {
