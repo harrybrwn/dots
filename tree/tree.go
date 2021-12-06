@@ -24,6 +24,7 @@ type Node struct {
 
 func (n *Node) Path() string { return filepath.Join(n.path...) }
 
+// New will create a new tree from a list of files
 func New(files []string) *Node {
 	if len(files) == 0 {
 		return &Node{
@@ -31,21 +32,26 @@ func New(files []string) *Node {
 			children: make(map[string]*Node),
 		}
 	}
-	tree := &Node{Name: "/", Type: TreeNode, children: make(map[string]*Node)}
+	tree := &Node{
+		Name:     "/",
+		Type:     TreeNode,
+		children: make(map[string]*Node),
+	}
 	for _, f := range files {
-		parts := strings.Split(f, string([]rune{filepath.Separator}))
+		parts := fileSplit(f)
 		expand(parts, tree)
 	}
 	return tree
 }
 
+// Print will write a string representation of the tree to an io.Writer
 func Print(w io.Writer, t *Node) error {
 	p := printer{w: w, root: t, n: count(t), colorHook: NoColor}
 	return p.walk(t, "")
 }
 
-func PrintColor(w io.Writer, t *Node, hook func(*Node) string) error {
-	p := printer{w: w, root: t, n: count(t), colorHook: hook}
+func PrintColor(w io.Writer, t *Node, prehook func(*Node) string) error {
+	p := printer{w: w, root: t, n: count(t), colorHook: prehook}
 	return p.walk(t, "")
 }
 
@@ -62,14 +68,10 @@ func PrintHeight(tree *Node) int {
 }
 
 func ColorFolders(n *Node) string {
-	switch n.Type {
-	case TreeNode:
+	if n.Type == TreeNode {
 		return "\x1b[01;34m"
-	case LeafNode:
-		return ""
-	default:
-		return ""
 	}
+	return ""
 }
 
 func NoColor(*Node) string { return "" }
@@ -78,13 +80,13 @@ func expand(parts []string, tree *Node) {
 	if tree == nil || len(parts) == 0 {
 		return
 	}
+	const ix = 0
 	if len(parts) == 1 {
-		child := createNode(tree, parts[0], LeafNode)
-		tree.insertChild(child)
+		tree.insertChild(createNode(tree, parts[ix], LeafNode))
 	}
-	child, ok := tree.children[parts[0]]
+	child, ok := tree.children[parts[ix]]
 	if !ok {
-		child = createNode(tree, parts[0], TreeNode)
+		child = createNode(tree, parts[ix], TreeNode)
 		tree.insertChild(child)
 	}
 	expand(parts[1:], child)
@@ -98,9 +100,6 @@ type printer struct {
 }
 
 func (p *printer) walk(t *Node, prefix string) error {
-	if t == nil {
-		return nil
-	}
 	var (
 		i     int
 		end   = len(t.children) - 1
@@ -114,7 +113,11 @@ func (p *printer) walk(t *Node, prefix string) error {
 			line = "├──"
 		}
 		color = p.colorHook(node)
-		err := p.writef("%s%s %s%s\033[0m\n", prefix, line, color, node.Name)
+		post := ""
+		if strings.Contains(color, "\033[") {
+			post = "\033[0m"
+		}
+		err := p.writef("%s%s %s%s%s\n", prefix, line, color, node.Name, post)
 		if err != nil {
 			return err
 		}
@@ -193,3 +196,9 @@ func (nl nodelist) Swap(i, j int) {
 }
 
 var _ sort.Interface = (*nodelist)(nil)
+
+func fileSplit(s string) []string {
+	return strings.FieldsFunc(s, func(r rune) bool {
+		return r == filepath.Separator
+	})
+}

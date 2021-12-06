@@ -1,11 +1,14 @@
 package tree
 
 import (
+	"bytes"
+	"errors"
 	"fmt"
-	"os"
 	"strings"
 	"testing"
 )
+
+func Test(t *testing.T) { t.Skip() }
 
 func TestNewTree(t *testing.T) {
 	files := []string{
@@ -49,7 +52,144 @@ func TestNewTree(t *testing.T) {
 	if !contains(config, "file") {
 		t.Error("config dir should have a 'file' dir")
 	}
-	Print(os.Stdout, tree)
+	var buf bytes.Buffer
+	Print(&buf, tree)
+	if buf.Len() == 0 {
+		t.Error("did not write tree to buffer")
+	}
+	exp := Node{
+		Name: "/",
+		Type: TreeNode,
+		path: []string{},
+		children: map[string]*Node{
+			"groceries.txt": {Name: "groceries.txt", Type: LeafNode, path: []string{"/"}, children: map[string]*Node{}},
+			"home": {
+				Name: "home",
+				Type: TreeNode,
+				path: []string{"/"},
+				children: map[string]*Node{"user": {
+					Name: "user",
+					Type: TreeNode,
+					path: []string{"/", "home"},
+					children: map[string]*Node{
+						".bashrc": {Name: ".bashrc", Type: LeafNode, path: []string{"/", "home", "user"}, children: map[string]*Node{}},
+						"music":   {Name: "music", Type: LeafNode, path: []string{"/", "home", "user"}, children: map[string]*Node{}},
+						"files": {
+							Name: "files",
+							Type: TreeNode,
+							path: []string{"/", "home", "user"},
+							children: map[string]*Node{
+								"file.txt":  {Name: "file.txt", Type: LeafNode, path: []string{"/", "home", "user", "files"}, children: map[string]*Node{}},
+								"file2.txt": {Name: "file2.txt", Type: LeafNode, path: []string{"/", "home", "user", "files"}, children: map[string]*Node{}},
+							},
+						},
+					},
+				}},
+			},
+			"config": {
+				Name: "config",
+				Type: TreeNode,
+				path: []string{"/"},
+				children: map[string]*Node{"file": {
+					Name:     "file",
+					Type:     LeafNode,
+					path:     []string{"/", "config"},
+					children: map[string]*Node{},
+				}},
+			},
+		},
+	}
+	if err := nodeEq(tree, &exp); err != nil {
+		t.Fatal(err)
+	}
+	tree = New(nil)
+	err := nodeEq(tree, &Node{Type: LeafNode, children: map[string]*Node{}})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestExpand(t *testing.T) {
+	var ok bool
+	path := []string{"home", "user", "file.txt"}
+	n := &Node{Name: "/", Type: TreeNode}
+	exp := Node{
+		Type: TreeNode,
+		Name: "/",
+		path: []string{},
+		children: map[string]*Node{"home": {
+			Type: TreeNode,
+			Name: "home",
+			path: []string{"/"},
+			children: map[string]*Node{"user": {
+				Type: TreeNode,
+				Name: "user",
+				path: []string{"/", "home"},
+				children: map[string]*Node{"file.txt": {
+					Type: LeafNode,
+					Name: "file.txt",
+					path: []string{"/", "home", "user"},
+				}},
+			}},
+		}},
+	}
+	expand(path, n)
+	var node = n
+	for _, key := range path {
+		if node, ok = node.children[key]; !ok {
+			t.Error("child should have been found")
+		}
+	}
+	if err := nodeEq(n, &exp); err != nil {
+		t.Errorf("node was not equal to expected: %v", err)
+	}
+
+	var b bytes.Buffer
+	err := PrintColor(&b, n, NoColor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(b.String(), "\033[0m") {
+		t.Error("no color print should not have control characters")
+	}
+	if PrintHeight(n) != 4 {
+		t.Errorf("expected a print height of 4, got %d", PrintHeight(n))
+	}
+	b.Reset()
+	err = PrintColor(&b, n, ColorFolders)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(b.String(), "\033[01;34m") {
+		t.Error("did not find folder color control character")
+	}
+}
+
+func nodeEq(a, b *Node) error {
+	if a.Type != b.Type || a.Name != b.Name {
+		return fmt.Errorf("nodes have different types: %v, %v", a.Type, b.Type)
+	}
+	if len(a.path) != len(b.path) {
+		return fmt.Errorf("path %v not equal to path %v", a.path, b.path)
+	}
+	if a.Path() != b.Path() {
+		return fmt.Errorf("path %v not equal to path %v", a.Path(), b.Path())
+	}
+	for i := 0; i < len(a.path); i++ {
+		if a.path[i] != b.path[i] {
+			return fmt.Errorf("path %v not equal to path %v", a.path, b.path)
+		}
+	}
+	for key, node := range a.children {
+		bnode, ok := b.children[key]
+		if !ok {
+			return fmt.Errorf("key %q not found in node b", key)
+		}
+		if err := nodeEq(node, bnode); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func printTree(t *Node, n int) {
@@ -70,4 +210,11 @@ func contains(n *Node, key string) bool {
 	}
 	_, ok := n.children[key]
 	return ok
+}
+
+type badWriter struct{}
+
+func (*badWriter) Write([]byte) (int, error) {
+	fmt.Println("writing...")
+	return 0, errors.New("always error")
 }
