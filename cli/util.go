@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"bytes"
 	"fmt"
 	"io"
 	"os"
@@ -10,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"text/tabwriter"
+	_ "unsafe"
 
 	"github.com/harrybrwn/dots/git"
 	"github.com/spf13/cobra"
@@ -132,6 +132,9 @@ func newUtilCommands(opts *Options) []*cobra.Command {
 				if err != nil {
 					return err
 				}
+				if len(mods) == 0 {
+					return nil
+				}
 				tab := tabwriter.NewWriter(cmd.OutOrStdout(), 3, 4, 1, ' ', 0)
 				tab.Write([]byte("SOURCE\tDEST\tTYPE\tNAME\n"))
 				for _, m := range mods {
@@ -226,15 +229,23 @@ func (t *Table) Flush() error {
 	return t.tab.Flush()
 }
 
-func execute(cmd *exec.Cmd) error {
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-	err := cmd.Run()
-	if err != nil {
-		return fmt.Errorf("%s: %w", strings.Trim(stderr.String(), "\n"), err)
-	}
-	return nil
-}
+//go:linkname execute github.com/harrybrwn/dots/git.run
+func execute(cmd *exec.Cmd) error
+
+// func execute(cmd *exec.Cmd) error {
+// 	var stderr bytes.Buffer
+// 	cmd.Stderr = &stderr
+// 	fmt.Println(cmd.Args)
+// 	err := cmd.Run()
+// 	if err != nil {
+// 		msg := strings.Trim(stderr.String(), "\n")
+// 		if len(msg) == 0 {
+// 			return err
+// 		}
+// 		return fmt.Errorf("%s: %w", msg, err)
+// 	}
+// 	return nil
+// }
 
 func remove(index int, arr []string) []string {
 	l := len(arr) - 1

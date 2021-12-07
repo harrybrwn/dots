@@ -53,6 +53,9 @@ func main() {
 	cmd.DisableAutoGenTag = true
 
 	if deb {
+		if version[0] == 'v' {
+			version = version[1:]
+		}
 		if len(packageDir) == 0 || !exists(packageDir) {
 			log.Fatal("use '-package' flag for the package directory")
 		}

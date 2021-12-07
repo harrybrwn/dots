@@ -44,8 +44,13 @@ func NewRootCmd() *cobra.Command {
 			ConfigDir: configdir(),
 		}
 		c = &cobra.Command{
-			Use:           name,
-			Short:         "Manage your dot files.",
+			Use:   name,
+			Short: "Manage your dot files.",
+			Long: "" +
+				"Manage your dots files without the hassle of working with git bare repos.\n" +
+				"That statmement is to some degree untrue because that is all this tool\n" +
+				"does under the hood. It handles all the crusty parts of managing a bare\n" +
+				"git repo so that you don't have too.\n",
 			SilenceErrors: true,
 			SilenceUsage:  true,
 			CompletionOptions: cobra.CompletionOptions{
@@ -108,7 +113,10 @@ func NewRemoveCmd(opts *Options) *cobra.Command {
 	c := &cobra.Command{
 		Use:   "rm <name...>",
 		Short: "Remove files from internal tracking",
-		Args:  cobra.MinimumNArgs(1),
+		Long: "" +
+			"Remove files from the internal git repo. This is\n" +
+			"not remove an files on disk.",
+		Args: cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if err := cleanPaths(opts, args); err != nil {
 				return err
@@ -189,7 +197,7 @@ func NewCloneCmd(opts *Options) *cobra.Command {
 			if !force && exists(opts.repo()) {
 				return fmt.Errorf("repository %q already exists", opts.repo())
 			}
-			return git.Cmd("clone", "--bare", args[0], opts.repo()).Run()
+			return execute(git.Cmd("clone", "--bare", args[0], opts.repo()))
 		},
 	}
 	c.Flags().BoolVarP(&force, "force", "f", force, "overwrite the existing repo")
@@ -245,6 +253,7 @@ func update(opts *Options, updated []string) (err error) {
 		"-c", "user.name=dots",
 		"-c", "user.email=dots@harrybrwn.com",
 	)
+	g.SetOut(os.Stdout)
 	return g.Commit(commitMessage("update", updated))
 }
 

@@ -36,7 +36,9 @@ func NewLSCmd(opts *Options) *cobra.Command {
 			if len(args) > 0 && args[0] != "." {
 				for _, f := range files {
 					if strings.HasPrefix(f, args[0]) {
-						filenames = append(filenames, strings.Replace(f, args[0], "", -1))
+						filenames = append(
+							filenames,
+							strings.Replace(f, args[0], "", -1))
 					}
 				}
 			} else {
@@ -59,13 +61,6 @@ func NewLSCmd(opts *Options) *cobra.Command {
 	return c
 }
 
-func removeDotsReadme(opts *Options, files []string) {
-	readme := filepath.Join(opts.ConfigDir, "README.md")
-	if !exists(readme) {
-		return
-	}
-}
-
 func listTree(out io.Writer, files []string, mods modSet, flags *lsFlags) error {
 	var tr = tree.New(files)
 	_, height, err := term.GetSize(0)
@@ -75,14 +70,18 @@ func listTree(out io.Writer, files []string, mods modSet, flags *lsFlags) error 
 	}
 	fn := mods.treeColor
 	if flags.NoColor {
-		fn = tree.NoColor
+		fn = mods.treeNoColor
+	}
+	pager := findPager()
+	if pager == "" {
+		flags.noPager = true
 	}
 	if !flags.noPager && tree.PrintHeight(tr) > height {
 		var buf bytes.Buffer
 		if err = tree.PrintColor(&buf, tr, fn); err != nil {
 			return err
 		}
-		return page(out, &buf)
+		return page(pager, out, &buf)
 	}
 	return tree.PrintColor(out, tr, fn)
 }
@@ -99,8 +98,12 @@ func listFlat(out io.Writer, files []string, flags *lsFlags) error {
 			return err
 		}
 	}
+	pager := findPager()
+	if pager == "" {
+		flags.noPager = true
+	}
 	if !flags.noPager && len(files) > height {
-		return page(out, &buf)
+		return page(pager, out, &buf)
 	}
 	_, err = io.Copy(out, &buf)
 	return err
@@ -137,21 +140,21 @@ func lsCompletionFunc(opts *Options) func(
 	}
 }
 
-func page(stdout io.Writer, in io.Reader) error {
-	var (
-		pager string
-		args  = make([]string, 0)
-	)
+func findPager() (pager string) {
 	p, ok := os.LookupEnv("GIT_PAGER")
 	if ok {
 		pager = p
 	} else {
 		p, ok = os.LookupEnv("PAGER")
-		if !ok {
-			pager = "less"
+		if ok {
+			pager = p
 		}
-		pager = p
 	}
+	return pager
+}
+
+func page(pager string, stdout io.Writer, in io.Reader) error {
+	var args = make([]string, 0)
 	if pager == "less" {
 		args = append(args, "--raw-control-chars")
 	}
@@ -214,4 +217,15 @@ func (ms modSet) treeColor(n *tree.Node) string {
 	default:
 		return ""
 	}
+}
+
+func (ms modSet) treeNoColor(n *tree.Node) string {
+	if n.Type == tree.LeafNode {
+		p := filepath.Join(n.Path(), n.Name)
+		t, ok := ms[p[1:]]
+		if ok {
+			return fmt.Sprintf("%c ", t)
+		}
+	}
+	return ""
 }
