@@ -24,7 +24,7 @@ func TestNewTree(t *testing.T) {
 	if count != len(files) {
 		t.Errorf("wrong file count: got %d, want %d", count, len(files))
 	}
-	if tree.Name != "/" {
+	if tree.Name != rootName {
 		t.Error("base of the tree should be named '/'")
 	}
 	for _, k := range []string{"home", "config", "groceries.txt"} {
@@ -58,29 +58,29 @@ func TestNewTree(t *testing.T) {
 		t.Error("did not write tree to buffer")
 	}
 	exp := Node{
-		Name: "/",
+		Name: rootName,
 		Type: TreeNode,
 		path: []string{},
 		children: map[string]*Node{
-			"groceries.txt": {Name: "groceries.txt", Type: LeafNode, path: []string{"/"}, children: map[string]*Node{}},
+			"groceries.txt": {Name: "groceries.txt", Type: LeafNode, path: []string{rootName}, children: map[string]*Node{}},
 			"home": {
 				Name: "home",
 				Type: TreeNode,
-				path: []string{"/"},
+				path: []string{rootName},
 				children: map[string]*Node{"user": {
 					Name: "user",
 					Type: TreeNode,
-					path: []string{"/", "home"},
+					path: []string{rootName, "home"},
 					children: map[string]*Node{
-						".bashrc": {Name: ".bashrc", Type: LeafNode, path: []string{"/", "home", "user"}, children: map[string]*Node{}},
-						"music":   {Name: "music", Type: LeafNode, path: []string{"/", "home", "user"}, children: map[string]*Node{}},
+						".bashrc": {Name: ".bashrc", Type: LeafNode, path: []string{rootName, "home", "user"}, children: map[string]*Node{}},
+						"music":   {Name: "music", Type: LeafNode, path: []string{rootName, "home", "user"}, children: map[string]*Node{}},
 						"files": {
 							Name: "files",
 							Type: TreeNode,
-							path: []string{"/", "home", "user"},
+							path: []string{rootName, "home", "user"},
 							children: map[string]*Node{
-								"file.txt":  {Name: "file.txt", Type: LeafNode, path: []string{"/", "home", "user", "files"}, children: map[string]*Node{}},
-								"file2.txt": {Name: "file2.txt", Type: LeafNode, path: []string{"/", "home", "user", "files"}, children: map[string]*Node{}},
+								"file.txt":  {Name: "file.txt", Type: LeafNode, path: []string{rootName, "home", "user", "files"}, children: map[string]*Node{}},
+								"file2.txt": {Name: "file2.txt", Type: LeafNode, path: []string{rootName, "home", "user", "files"}, children: map[string]*Node{}},
 							},
 						},
 					},
@@ -89,11 +89,11 @@ func TestNewTree(t *testing.T) {
 			"config": {
 				Name: "config",
 				Type: TreeNode,
-				path: []string{"/"},
+				path: []string{rootName},
 				children: map[string]*Node{"file": {
 					Name:     "file",
 					Type:     LeafNode,
-					path:     []string{"/", "config"},
+					path:     []string{rootName, "config"},
 					children: map[string]*Node{},
 				}},
 			},
@@ -112,23 +112,23 @@ func TestNewTree(t *testing.T) {
 func TestExpand(t *testing.T) {
 	var ok bool
 	path := []string{"home", "user", "file.txt"}
-	n := &Node{Name: "/", Type: TreeNode}
+	n := &Node{Name: rootName, Type: TreeNode}
 	exp := Node{
 		Type: TreeNode,
-		Name: "/",
+		Name: rootName,
 		path: []string{},
 		children: map[string]*Node{"home": {
 			Type: TreeNode,
 			Name: "home",
-			path: []string{"/"},
+			path: []string{rootName},
 			children: map[string]*Node{"user": {
 				Type: TreeNode,
 				Name: "user",
-				path: []string{"/", "home"},
+				path: []string{rootName, "home"},
 				children: map[string]*Node{"file.txt": {
 					Type: LeafNode,
 					Name: "file.txt",
-					path: []string{"/", "home", "user"},
+					path: []string{rootName, "home", "user"},
 				}},
 			}},
 		}},

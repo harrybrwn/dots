@@ -24,6 +24,8 @@ type Node struct {
 
 func (n *Node) Path() string { return filepath.Join(n.path...) }
 
+const rootName = "/"
+
 // New will create a new tree from a list of files
 func New(files []string) *Node {
 	if len(files) == 0 {
@@ -33,7 +35,7 @@ func New(files []string) *Node {
 		}
 	}
 	tree := &Node{
-		Name:     "/",
+		Name:     rootName,
 		Type:     TreeNode,
 		children: make(map[string]*Node),
 	}
