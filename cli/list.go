@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 
 	"github.com/harrybrwn/dots/git"
 	"github.com/harrybrwn/dots/tree"
@@ -31,20 +32,38 @@ func NewLSCmd(opts *Options) *cobra.Command {
 			if err != nil {
 				return err
 			}
+			filenames := make([]string, 0, len(files))
+			if len(args) > 0 && args[0] != "." {
+				for _, f := range files {
+					if strings.HasPrefix(f, args[0]) {
+						filenames = append(filenames, strings.Replace(f, args[0], "", -1))
+					}
+				}
+			} else {
+				filenames = append(filenames, files...)
+			}
 			if flags.flat {
-				return listFlat(cmd.OutOrStdout(), files, &flags)
+				return listFlat(cmd.OutOrStdout(), filenames, &flags)
 			}
 			mods, err := modifiedSet(g)
 			if err != nil {
 				return err
 			}
-			return listTree(cmd.OutOrStdout(), files, mods, &flags)
+			return listTree(cmd.OutOrStdout(), filenames, mods, &flags)
 		},
+		ValidArgsFunction: lsCompletionFunc(opts),
 	}
 	f := c.Flags()
 	f.BoolVar(&flags.flat, "flat", flags.flat, "print as flat list")
 	f.BoolVar(&flags.noPager, "no-pager", flags.noPager, "disable the automatic pager")
 	return c
+}
+
+func removeDotsReadme(opts *Options, files []string) {
+	readme := filepath.Join(opts.ConfigDir, "README.md")
+	if !exists(readme) {
+		return
+	}
 }
 
 func listTree(out io.Writer, files []string, mods modSet, flags *lsFlags) error {
@@ -87,6 +106,37 @@ func listFlat(out io.Writer, files []string, flags *lsFlags) error {
 	return err
 }
 
+func lsCompletionFunc(opts *Options) func(
+	_ *cobra.Command,
+	_ []string,
+	_ string,
+) ([]string, cobra.ShellCompDirective) {
+	return func(
+		_ *cobra.Command,
+		_ []string,
+		toComplete string,
+	) ([]string, cobra.ShellCompDirective) {
+		files, err := opts.git().LsFiles()
+		if err != nil {
+			return nil, cobra.ShellCompDirectiveError
+		}
+		set := make(map[string]struct{}, len(files))
+		names := make([]string, 0, len(files))
+		for _, f := range files {
+			pathlist := strings.Split(f, string(filepath.Separator))
+			if len(pathlist) == 0 {
+				continue
+			}
+			_, ok := set[pathlist[0]]
+			if !ok {
+				set[pathlist[0]] = struct{}{}
+				names = append(names, pathlist[0])
+			}
+		}
+		return names, cobra.ShellCompDirectiveDefault
+	}
+}
+
 func page(stdout io.Writer, in io.Reader) error {
 	var (
 		pager string
@@ -122,6 +172,18 @@ func page(stdout io.Writer, in io.Reader) error {
 	return nil
 }
 
+func modifiedSet(g *git.Git) (modSet, error) {
+	m := make(modSet)
+	files, err := g.Modifications()
+	if err != nil {
+		return nil, err
+	}
+	for _, f := range files {
+		m[f.Name] = f.Type
+	}
+	return m, nil
+}
+
 type modSet map[string]git.ModType
 
 func (ms modSet) treeColor(n *tree.Node) string {
@@ -133,6 +195,9 @@ func (ms modSet) treeColor(n *tree.Node) string {
 			col := 33
 			switch t {
 			case 'D':
+				if n.Path() == "/" && n.Name == "README.md" {
+					return ""
+				}
 				col = 31
 			case 'M':
 				col = 33
@@ -149,16 +214,4 @@ func (ms modSet) treeColor(n *tree.Node) string {
 	default:
 		return ""
 	}
-}
-
-func modifiedSet(g *git.Git) (modSet, error) {
-	m := make(modSet)
-	files, err := g.Modifications()
-	if err != nil {
-		return nil, err
-	}
-	for _, f := range files {
-		m[f.Name] = f.Type
-	}
-	return m, nil
 }

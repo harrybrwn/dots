@@ -1,15 +1,15 @@
 package cli
 
 import (
+	"archive/tar"
+	"compress/gzip"
 	"errors"
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
-	"time"
 
 	"github.com/harrybrwn/dots/git"
 	"github.com/spf13/cobra"
@@ -20,8 +20,15 @@ const (
 	repo = "repo"
 )
 
-// set at compile time with -ldflags
-var completions string
+var (
+	Version string // release version
+	Commit  string // git commit of release
+	Hash    string // sha256 of source code
+
+	// set at compile time with -ldflags
+	// "false" to disable completions command
+	completions string
+)
 
 type Options struct {
 	Root      string // Root of user-added files
@@ -57,6 +64,7 @@ func NewRootCmd() *cobra.Command {
 		NewInstallCmd(&opts),
 		NewGitCmd(&opts),
 		NewUtilCmd(&opts),
+		NewVersionCmd(),
 		newTestCmd(&opts),
 	)
 	f := c.PersistentFlags()
@@ -64,34 +72,33 @@ func NewRootCmd() *cobra.Command {
 	f.StringVarP(&opts.Root, "dir", "d", opts.Root, "base of the git tree (where your configuration lives)")
 	f.StringVarP(&opts.Root, "root", "r", opts.Root, "root of the git tree (where your configuration lives)")
 	f.BoolVar(&opts.NoColor, "no-color", opts.NoColor, "disable color output")
-	f.StringSliceVar(&opts.gitArgs, "git-args", opts.gitArgs, "pass additional flags or arguments to the git command internally")
+	f.StringSliceVar(&opts.gitArgs, "git-args", opts.gitArgs,
+		"pass additional flags or arguments to the git command internally")
 	c.SetUsageTemplate(IndentedCobraUsageTemplate)
 	return c
 }
 
+func NewVersionCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:     "version",
+		Aliases: []string{"v"},
+		Short:   "Print the version and build info",
+		Run: func(cmd *cobra.Command, args []string) {
+			fmt.Fprintf(
+				cmd.OutOrStdout(),
+				"%s\ncommit: %s\nhash:   %s\n",
+				Version, Commit, Hash)
+		},
+	}
+}
+
 func NewAddCmd(opts *Options) *cobra.Command {
 	c := &cobra.Command{
-		Use:   "add",
+		Use:   "add <file...>",
 		Short: "Add new files.",
-		RunE: func(cmd *cobra.Command, args []string) (err error) {
-			if len(args) == 0 {
-				return errors.New("no files given")
-			}
-			git := git.New(opts.repo(), opts.Root)
-			if !git.Exists() {
-				err := git.InitBare()
-				if err != nil {
-					return err
-				}
-			}
-			if err = cleanPaths(opts, args); err != nil {
-				return err
-			}
-			err = git.Add(args...)
-			if err != nil {
-				return err
-			}
-			return git.Commit(commitMessage("add", args))
+		Args:  cobra.MinimumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return add(opts, args)
 		},
 	}
 	return c
@@ -99,109 +106,45 @@ func NewAddCmd(opts *Options) *cobra.Command {
 
 func NewRemoveCmd(opts *Options) *cobra.Command {
 	c := &cobra.Command{
-		Use:   "rm",
+		Use:   "rm <name...>",
 		Short: "Remove files from internal tracking",
 		Args:  cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if err := cleanPaths(opts, args); err != nil {
 				return err
 			}
-			return git.New(opts.repo(), opts.Root).Remove(args...)
+			return opts.git().Remove(args...)
 		},
 		ValidArgsFunction: filesCompletionFunc(opts),
 	}
 	return c
 }
 
-func NewCloneCmd(opts *Options) *cobra.Command {
-	var force bool
-	c := &cobra.Command{
-		Use:   "clone <uri>",
-		Short: "Clone a remote repository",
-		Args:  cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			git := opts.git()
-			if git.Exists() {
-				return errors.New("git repository already exists here")
-			}
-			if !force && exists(opts.repo()) {
-				return fmt.Errorf("repository %q already exists", opts.repo())
-			}
-			return git.Cmd("clone", "--bare", args[0], opts.repo()).Run()
-		},
-	}
-	c.Flags().BoolVarP(&force, "force", "f", force, "overwrite the existing repo")
-	return c
-}
-
 func NewUpdateCmd(opts *Options) *cobra.Command {
 	return &cobra.Command{
-		Use:   "update",
+		Use:   "update [files...]",
 		Short: "Update files that have been modified",
 		Long: "" +
 			"Update is similar to 'add' in that it updates\n" +
 			"the internal repository with new changes except that\n" +
 			"it automatically updates files that have already\n" +
 			"been added and have changed since the last update.",
+		Example: "$ dots update\n" +
+			"\t$ dots update ~/.bashrc",
 		SuggestFor: []string{"add"},
 		RunE: func(cmd *cobra.Command, args []string) error {
-			git := opts.git()
-			updated, err := git.ModifiedFiles()
-			if err != nil {
-				return err
-			}
-			for i, f := range updated {
-				updated[i] = filepath.Join(opts.Root, f)
-			}
-			err = git.Add(updated...)
-			if err != nil {
-				return err
-			}
-			return git.Commit(commitMessage("update", updated))
+			return update(opts, args)
 		},
+		ValidArgsFunction: modifiedCompletionFunc(opts),
 	}
-}
-
-func NewInstallCmd(opts *Options) *cobra.Command {
-	c := &cobra.Command{
-		Use:   "install [location]",
-		Short: "Copy all of the tracked files to the current root (will overwrite existing files)",
-		RunE: func(cmd *cobra.Command, args []string) error {
-			loc := opts.Root
-			if len(args) > 0 {
-				loc = args[0]
-			}
-			git := git.New(opts.repo(), loc)
-			return git.Cmd("checkout").Run()
-		},
-	}
-	return c
 }
 
 func NewSyncCmd(opts *Options) *cobra.Command {
 	c := &cobra.Command{
 		Use:   "sync",
 		Short: "Sync with the remote repository",
-		RunE: func(cmd *cobra.Command, args []string) error {
-			var (
-				err error
-				c   *exec.Cmd
-				git = opts.git()
-			)
-			git.SetErr(cmd.ErrOrStderr())
-			git.SetOut(cmd.OutOrStdout())
-			if !git.HasRemote() {
-				return errors.New("repo does not have a remote repo")
-			}
-			c = git.Cmd("pull", "origin", "master")
-			if err = c.Run(); err != nil {
-				return err
-			}
-			c = git.Cmd("push", "origin", "master")
-			if err = c.Run(); err != nil {
-				return err
-			}
-			return nil
+		RunE: func(*cobra.Command, []string) error {
+			return sync(opts.git())
 		},
 	}
 	return c
@@ -232,127 +175,213 @@ func NewStatusCmd(opts *Options) *cobra.Command {
 	return c
 }
 
-func NewUtilCmd(opts *Options) *cobra.Command {
-	c := &cobra.Command{
-		Use:               "util",
-		Short:             "A collection of utility commands",
-		Args:              cobra.NoArgs,
-		ValidArgsFunction: cobra.NoFileCompletions,
-	}
-	c.AddCommand(
-		NewGetCmd(opts),
-		NewCatCmd(opts),
-		&cobra.Command{
-			Use: "set-ssh-key <file>", Args: cobra.ExactArgs(1),
-			Short: "Set an ssh identity file to be used on every remote operation.",
-			RunE: func(cmd *cobra.Command, args []string) error {
-				return opts.git().Cmd(
-					"config", "--set", "core.sshCommand",
-					fmt.Sprintf("ssh -i %s -o IdentitiesOnly=yes", args[0]),
-				).Run()
-			},
-		},
-		&cobra.Command{
-			Use: "command", Short: "Print the internal git command being used",
-			RunE: func(cmd *cobra.Command, args []string) error {
-				g := opts.git()
-				fmt.Println(strings.Join(g.Cmd().Args, " "))
-				return nil
-			},
-		},
-		&cobra.Command{
-			Use: "modified",
-			RunE: func(cmd *cobra.Command, args []string) error {
-				git := opts.git()
-				mods, err := git.Modifications()
-				if err != nil {
-					return err
-				}
-				for _, m := range mods {
-					fmt.Printf("%c %+v\n", m.Type, m)
-				}
-				return nil
-			},
-		},
-	)
-	return c
-}
-
-func NewGetCmd(opts *Options) *cobra.Command {
+func NewCloneCmd(opts *Options) *cobra.Command {
 	var force bool
 	c := &cobra.Command{
-		Use:   "get <file>",
-		Short: "Pull a single file out and write it the to current working directory.",
+		Use:   "clone <uri>",
+		Short: "Clone a remote repository",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cwd, err := os.Getwd()
-			if err != nil {
-				return err
+			git := opts.git()
+			if git.Exists() {
+				return errors.New("git repository already exists here")
 			}
-			if !force && args[0] != "." && exists(filepath.Join(cwd, args[0])) {
-				return fmt.Errorf(
-					"file %q already exists",
-					args[0],
-				)
+			if !force && exists(opts.repo()) {
+				return fmt.Errorf("repository %q already exists", opts.repo())
 			}
-			git := git.New(opts.repo(), cwd)
-			if args[0] == "." {
-				files, err := git.LsFiles()
-				if err != nil {
-					return err
-				}
-				command := []string{"checkout", "--"}
-				command = append(command, files...)
-				return git.Cmd(command...).Run()
-			}
-			return git.Cmd("checkout", "--", args[0]).Run()
+			return git.Cmd("clone", "--bare", args[0], opts.repo()).Run()
 		},
-		ValidArgsFunction: filesCompletionFunc(opts),
 	}
-	c.Flags().BoolVarP(
-		&force, "force", "f",
-		force, "force git to overwrite the file if it already exists",
-	)
+	c.Flags().BoolVarP(&force, "force", "f", force, "overwrite the existing repo")
 	return c
 }
 
-func NewCatCmd(opts *Options) *cobra.Command {
-	tmp := os.TempDir()
-	c := &cobra.Command{
-		Use:               "cat <filename>",
-		Short:             "Print a file being tracked to standard out.",
-		Args:              cobra.ExactArgs(1),
-		ValidArgsFunction: filesCompletionFunc(opts),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			dir := filepath.Join(tmp, fmt.Sprintf("dots_cat_%v", time.Now().Unix()))
-			defer func() {
-				if err := os.RemoveAll(dir); err != nil {
-					fmt.Fprintf(os.Stderr, "Error: could not delete temporary folder: %v", err)
-				}
-			}()
-			err := os.Mkdir(dir, 0755)
-			if err != nil {
-				return err
-			}
-			git := git.New(opts.repo(), dir)
-			err = git.Cmd("checkout", "--", args[0]).Run()
-			if err != nil {
-				return err
-			}
-			f, err := os.Open(filepath.Join(dir, args[0]))
-			if err != nil {
-				return err
-			}
-			defer f.Close()
-			_, err = io.Copy(os.Stdout, f)
+func add(opts *Options, files []string) (err error) {
+	git := opts.git()
+	if !git.Exists() {
+		err = git.InitBare()
+		if err != nil {
 			return err
+		}
+	}
+	if err = cleanPaths(opts, files); err != nil {
+		return err
+	}
+	err = git.Add(files...)
+	if err != nil {
+		return err
+	}
+	git.AppendPersistendArgs(
+		"-c", "user.name=dots",
+		"-c", "user.email=dots@harrybrwn.com",
+	)
+	return git.Commit(commitMessage("add", files))
+}
+
+func update(opts *Options, updated []string) (err error) {
+	g := opts.git()
+	if len(updated) == 0 {
+		objects, err := g.Modifications()
+		if err != nil {
+			return err
+		}
+		updated = make([]string, 0, len(objects))
+		for _, o := range objects {
+			updated = append(updated, filepath.Join(g.WorkingTree(), o.Name))
+		}
+	} else {
+		for i, f := range updated {
+			updated[i] = filepath.Join(g.WorkingTree(), f)
+		}
+	}
+	if opts.hasReadme() {
+		updated = removeReadme(updated)
+	}
+	err = g.Add(updated...)
+	if err != nil {
+		return err
+	}
+	g.AppendPersistendArgs(
+		"-c", "user.name=dots",
+		"-c", "user.email=dots@harrybrwn.com",
+	)
+	return g.Commit(commitMessage("update", updated))
+}
+
+func removeReadme(files []string) []string {
+	for i, f := range files {
+		if filepath.Base(f) == "README.md" {
+			return remove(i, files)
+		}
+	}
+	return files
+}
+
+func sync(g *git.Git) error {
+	var (
+		err error
+	)
+	if !g.HasRemote() {
+		return errors.New("repo does not have a remote repo")
+	}
+	if err = execute(g.Cmd("pull")); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: %s\n", err)
+	}
+	branch, err := g.CurrentBranch()
+	if err != nil {
+		return err
+	}
+	return execute(g.Cmd("push", "origin", branch))
+}
+
+func NewInstallCmd(opts *Options) *cobra.Command {
+	var (
+		yes bool
+	)
+	c := &cobra.Command{
+		Use:   "install [location]",
+		Short: "Copy all of the tracked files to the current root (will overwrite existing files)",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			var (
+				git = opts.git()
+				c   = git.Cmd("archive", "--format=tar.gz", "HEAD")
+			)
+			pipe, err := c.StdoutPipe()
+			if err != nil {
+				return err
+			}
+			defer pipe.Close()
+			if err = c.Start(); err != nil {
+				return err
+			}
+			r, err := gzip.NewReader(pipe)
+			if err != nil {
+				return err
+			}
+			if err = install(
+				git,
+				tar.NewReader(r),
+				yes,
+				opts.hasReadme(),
+			); err != nil {
+				return err
+			}
+			return c.Wait()
 		},
 	}
+	f := c.Flags()
+	f.BoolVarP(&yes, "yes", "y", yes, "set all yes-or-no prompts to yes")
 	return c
+}
+
+func install(git *git.Git, archive *tar.Reader, yes, hasReadme bool) error {
+	tree := git.WorkingTree()
+	for {
+		header, err := archive.Next()
+		switch err {
+		case nil:
+		case io.EOF:
+			return nil
+		default:
+			return err
+		}
+		p := filepath.Join(tree, header.Name)
+		if !yes && exists(p) {
+			if !yesOrNo(
+				os.Stdin, os.Stdout,
+				fmt.Sprintf("would you like to overwrite %q", p),
+			) {
+				continue
+			}
+		}
+		perm := header.FileInfo().Mode().Perm()
+		switch header.Typeflag {
+		case tar.TypeDir:
+			err = os.MkdirAll(p, perm)
+			if err != nil {
+				if os.IsExist(err) {
+					continue
+				}
+				return err
+			}
+		case tar.TypeReg:
+			f, err := os.OpenFile(p, os.O_CREATE|os.O_WRONLY, perm)
+			if err != nil {
+				return err
+			}
+			_, err = io.Copy(f, archive)
+			if err != nil {
+				f.Close()
+				return err
+			}
+			if err = f.Close(); err != nil {
+				return err
+			}
+		case tar.TypeSymlink:
+			err = os.Symlink(p, filepath.Join(tree, header.Linkname))
+			if err != nil {
+				return err
+			}
+		case tar.TypeLink:
+			err = os.Link(p, filepath.Join(tree, header.Linkname))
+			if err != nil {
+				return err
+			}
+		case tar.TypeBlock:
+		case tar.TypeFifo:
+		}
+	}
 }
 
 func NewGitCmd(opts *Options) *cobra.Command {
-	fn := func(_ *cobra.Command, a []string) error { return opts.git().Cmd(a...).Run() }
+	fn := func(cmd *cobra.Command, a []string) error {
+		var (
+			g = opts.Git()
+			c = g.Cmd(a...)
+		)
+		c.Stdout = cmd.OutOrStdout()
+		return execute(c)
+	}
 	return &cobra.Command{
 		Use:                "git",
 		Hidden:             true,
@@ -361,10 +390,31 @@ func NewGitCmd(opts *Options) *cobra.Command {
 	}
 }
 
-func filesCompletionFunc(opts *Options) func(_ *cobra.Command, _ []string, toComplete string) ([]string, cobra.ShellCompDirective) {
-	return func(_ *cobra.Command, _ []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+type completeFunc func(
+	_ *cobra.Command,
+	_ []string,
+	toComplete string,
+) ([]string, cobra.ShellCompDirective)
+
+func filesCompletionFunc(opts *Options) completeFunc {
+	return func(
+		_ *cobra.Command,
+		_ []string,
+		toComplete string,
+	) ([]string, cobra.ShellCompDirective) {
 		git := opts.git()
 		files, err := git.LsFiles()
+		if err != nil {
+			return nil, cobra.ShellCompDirectiveError
+		}
+		return files, cobra.ShellCompDirectiveDefault
+	}
+}
+
+func modifiedCompletionFunc(opts *Options) completeFunc {
+	return func(_ *cobra.Command, _ []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+		git := opts.git()
+		files, err := git.ModifiedFiles()
 		if err != nil {
 			return nil, cobra.ShellCompDirectiveError
 		}
@@ -376,9 +426,7 @@ func newTestCmd(opts *Options) *cobra.Command {
 	return &cobra.Command{
 		Use:    "test",
 		Hidden: true,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return nil
-		},
+		RunE:   func(cmd *cobra.Command, args []string) error { return nil },
 	}
 }
 
@@ -409,8 +457,14 @@ func (o *Options) repo() string {
 	return filepath.Join(o.ConfigDir, repo)
 }
 
+func (o *Options) Git() *git.Git { return o.git() }
+
 func (o *Options) git() *git.Git {
 	return git.New(o.repo(), o.Root)
+}
+
+func (o *Options) hasReadme() bool {
+	return exists(filepath.Join(o.ConfigDir, "README.md"))
 }
 
 func configdir() string {
@@ -432,6 +486,20 @@ func configdir() string {
 func exists(path string) bool {
 	_, err := os.Stat(path)
 	return !os.IsNotExist(err)
+}
+
+func yesOrNo(in io.Reader, out io.Writer, prompt string) bool {
+	var res string
+	fmt.Fprintf(out, "%s (y/n) ", prompt)
+	_, err := fmt.Fscan(in, &res)
+	if err != nil {
+		return false
+	}
+	switch strings.ToLower(res) {
+	case "y", "yes":
+		return true
+	}
+	return false
 }
 
 type rankedFile struct {
@@ -512,12 +580,15 @@ func init() {
 var IndentedCobraUsageTemplate = `Usage:{{if .Runnable}}
 
 	{{.UseLine}}{{end}}{{if .HasAvailableSubCommands}}
+
 	{{.CommandPath}} [command]{{end}}{{if gt (len .Aliases) 0}}
 
 Aliases:
+
 	{{.NameAndAliases}}{{end}}{{if .HasExample}}
 
 Examples:
+
 	{{.Example}}{{end}}{{if .HasAvailableSubCommands}}
 
 Available Commands:

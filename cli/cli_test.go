@@ -2,38 +2,43 @@ package cli
 
 import (
 	"os"
-	"os/exec"
 	"path/filepath"
 	"testing"
+
+	"github.com/matryer/is"
 )
 
 func TestClone(t *testing.T) {
 	t.Parallel()
+	is := is.New(t)
 	tmp := t.TempDir()
 	cmd := NewRootCmd()
 	err := cmd.ParseFlags([]string{
 		"-d", filepath.Join(tmp, "tree"),
 		"-c", tmp,
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	is.NoErr(err)
 	c, args, err := cmd.Find([]string{
 		"clone",
 		"https://github.com/harrybrwn/utest",
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	err = c.RunE(c, args)
-	if err != nil {
-		t.Fatal(err)
-	}
-	ex := exec.Command("exa", "--tree", tmp)
-	ex.Stdout = os.Stdout
-	ex.Run()
+	is.NoErr(err)
+	is.NoErr(c.RunE(c, args))
 	_, err = os.Stat(filepath.Join(tmp, repo))
 	if os.IsNotExist(err) {
 		t.Error("headless repo should exist")
 	}
+}
+
+func TestRemoveReadme(t *testing.T) {
+	is := is.New(t)
+	files := []string{
+		"/path/to/another",
+		"/path/to/README.md",
+		"/home/user/.bashrc",
+	}
+	files = removeReadme(files)
+	is.Equal(len(files), 2)
+	is.Equal(files[0], "/path/to/another")
+	is.Equal(files[1], "/home/user/.bashrc")
 }
