@@ -77,7 +77,7 @@ func (g *Git) AppendPersistendArgs(args ...string) { g.args = append(g.args, arg
 
 func (g *Git) Add(paths ...string) error {
 	if len(paths) == 0 {
-		paths = append(paths, ".")
+		return errors.New("no paths to add")
 	}
 	return run(g.Cmd(append([]string{"add"}, paths...)...))
 }
@@ -88,11 +88,11 @@ func (g *Git) Remove(files ...string) error {
 	}
 	args := []string{"rm", "--cached"}
 	args = append(args, files...)
-	return g.Cmd(args...).Run()
+	return run(g.Cmd(args...))
 }
 
 func (g *Git) Commit(message string) error {
-	return g.Cmd("commit", "-m", message).Run()
+	return run(g.Cmd("commit", "-m", message))
 }
 
 func (g *Git) LsFiles() ([]string, error) {
@@ -263,7 +263,7 @@ func (g *Git) HasRemote() bool {
 		cmd = g.Cmd("remote")
 	)
 	cmd.Stdout = &b
-	err := cmd.Run()
+	err := run(cmd)
 	if err != nil {
 		return false
 	}
@@ -302,12 +302,12 @@ func (g *Git) config(flags ...string) (Config, error) {
 		buf  bytes.Buffer
 		m    = make(Config)
 		args = make([]string, 1+len(flags))
-		cmd  = g.Cmd(args...)
 	)
 	args[0] = "config"
 	for i := 0; i < len(flags); i++ {
 		args[i+1] = flags[i]
 	}
+	cmd := g.Cmd(args...)
 	cmd.Stdout = &buf
 	err := run(cmd)
 	if err != nil {
@@ -390,7 +390,6 @@ func initBareRepo(path string) error {
 			return err
 		}
 	}
-
 	err = writeToFile(filepath.Join(path, "description"), "Unnamed repository; edit this file 'description' to name the repository.\n")
 	if err != nil {
 		return err
@@ -440,7 +439,11 @@ func run(cmd *exec.Cmd) error {
 	cmd.Stderr = &stderr
 	err := cmd.Run()
 	if err != nil {
-		return fmt.Errorf("%s: %w", strings.Trim(stderr.String(), "\n"), err)
+		msg := strings.Trim(stderr.String(), "\n")
+		if len(msg) == 0 {
+			return err
+		}
+		return fmt.Errorf("%s: %w", msg, err)
 	}
 	return nil
 }
