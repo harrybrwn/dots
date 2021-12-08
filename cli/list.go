@@ -169,7 +169,7 @@ func (ms modSet) treeColor(n *tree.Node) string {
 			col := 33
 			switch t {
 			case 'D':
-				if n.Path() == "/" && n.Name == "README.md" {
+				if n.Path() == "/" && n.Name == ReadMeName {
 					return ""
 				}
 				col = 31

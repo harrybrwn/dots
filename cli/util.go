@@ -184,7 +184,7 @@ func newUtilCommands(opts *Options) []*cobra.Command {
 			Use:   "add-readme",
 			Short: "Add a README.md file to the git tree",
 			RunE: func(cmd *cobra.Command, args []string) error {
-				readme := filepath.Join(opts.ConfigDir, "README.md")
+				readme := filepath.Join(opts.ConfigDir, ReadMeName)
 				if !exists(readme) {
 					return fmt.Errorf("%q does not exist", readme)
 				}

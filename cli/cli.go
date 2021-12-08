@@ -1,8 +1,6 @@
 package cli
 
 import (
-	"archive/tar"
-	"compress/gzip"
 	"errors"
 	"fmt"
 	"io"
@@ -17,8 +15,9 @@ import (
 )
 
 const (
-	name = "dots"
-	repo = "repo"
+	ReadMeName = dotfiles.ReadMeName
+	name       = "dots"
+	repo       = "repo"
 )
 
 var (
@@ -52,7 +51,7 @@ func (o *Options) git() *git.Git {
 }
 
 func (o *Options) HasReadme() bool {
-	return exists(filepath.Join(o.ConfigDir, "README.md"))
+	return exists(filepath.Join(o.ConfigDir, ReadMeName))
 }
 
 func NewRootCmd() *cobra.Command {
@@ -95,7 +94,7 @@ func NewRootCmd() *cobra.Command {
 	f := c.PersistentFlags()
 	f.StringVarP(&opts.ConfigDir, "config", "c", opts.ConfigDir, "configuration directory")
 	f.StringVarP(&opts.Root, "dir", "d", opts.Root, "base of the git tree (where your configuration lives)")
-	f.StringVarP(&opts.Root, "root", "r", opts.Root, "root of the git tree (where your configuration lives)")
+	// f.StringVarP(&opts.Root, "root", "r", opts.Root, "root of the git tree (where your configuration lives)")
 	f.BoolVar(&opts.noColor, "no-color", opts.noColor, "disable color output")
 	f.StringSliceVar(&opts.gitArgs, "git-args", opts.gitArgs,
 		"pass additional flags or arguments to the git command internally")
@@ -276,7 +275,7 @@ func update(opts *Options, updated []string) (err error) {
 
 func removeReadme(files []string) []string {
 	for i, f := range files {
-		if filepath.Base(f) == "README.md" {
+		if filepath.Base(f) == ReadMeName {
 			return remove(i, files)
 		}
 	}
@@ -298,108 +297,6 @@ func sync(g *git.Git) error {
 		return err
 	}
 	return execute(g.Cmd("push", "origin", branch))
-}
-
-func NewInstallCmd(opts interface {
-	dotfiles.Repo
-	dotfiles.ReadmeFlag
-}) *cobra.Command {
-	var (
-		yes bool
-	)
-	c := &cobra.Command{
-		Use:   "install [location]",
-		Short: "Copy all of the tracked files to the current root (will overwrite existing files)",
-		RunE: func(cmd *cobra.Command, args []string) error {
-			var (
-				git = opts.Git()
-				c   = git.Cmd("archive", "--format=tar.gz", "HEAD")
-			)
-			pipe, err := c.StdoutPipe()
-			if err != nil {
-				return err
-			}
-			defer pipe.Close()
-			if err = c.Start(); err != nil {
-				return err
-			}
-			r, err := gzip.NewReader(pipe)
-			if err != nil {
-				return err
-			}
-			if err = install(
-				git,
-				tar.NewReader(r),
-				yes,
-				opts.HasReadme(),
-			); err != nil {
-				return err
-			}
-			return c.Wait()
-		},
-	}
-	f := c.Flags()
-	f.BoolVarP(&yes, "yes", "y", yes, "set all yes-or-no prompts to yes")
-	return c
-}
-
-func install(git *git.Git, archive *tar.Reader, yes, hasReadme bool) error {
-	tree := git.WorkingTree()
-	for {
-		header, err := archive.Next()
-		switch err {
-		case nil:
-		case io.EOF:
-			return nil
-		default:
-			return err
-		}
-		p := filepath.Join(tree, header.Name)
-		if !yes && exists(p) {
-			if !yesOrNo(
-				os.Stdin, os.Stdout,
-				fmt.Sprintf("would you like to overwrite %q", p),
-			) {
-				continue
-			}
-		}
-		perm := header.FileInfo().Mode().Perm()
-		switch header.Typeflag {
-		case tar.TypeDir:
-			err = os.MkdirAll(p, perm)
-			if err != nil {
-				if os.IsExist(err) {
-					continue
-				}
-				return err
-			}
-		case tar.TypeReg:
-			f, err := os.OpenFile(p, os.O_CREATE|os.O_WRONLY, perm)
-			if err != nil {
-				return err
-			}
-			_, err = io.Copy(f, archive)
-			if err != nil {
-				f.Close()
-				return err
-			}
-			if err = f.Close(); err != nil {
-				return err
-			}
-		case tar.TypeSymlink:
-			err = os.Symlink(p, filepath.Join(tree, header.Linkname))
-			if err != nil {
-				return err
-			}
-		case tar.TypeLink:
-			err = os.Link(p, filepath.Join(tree, header.Linkname))
-			if err != nil {
-				return err
-			}
-		case tar.TypeBlock:
-		case tar.TypeFifo:
-		}
-	}
 }
 
 func NewGitCmd(r dotfiles.Repo) *cobra.Command {
@@ -440,7 +337,7 @@ func filesCompletionFunc(r dotfiles.Repo) completeFunc {
 }
 
 func modifiedCompletionFunc(r dotfiles.Repo) completeFunc {
-	return func(_ *cobra.Command, _ []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+	return func(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {
 		git := r.Git()
 		files, err := git.ModifiedFiles()
 		if err != nil {
