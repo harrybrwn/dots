@@ -4,6 +4,7 @@ go 1.17
 
 require (
 	github.com/matryer/is v1.4.0
+	github.com/mattn/go-shellwords v1.0.12
 	github.com/spf13/cobra v1.2.1
 	golang.org/x/term v0.0.0-20201126162022-7de9c90e9dd1
 )

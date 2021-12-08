@@ -5,7 +5,7 @@ BIN=release/bin/$(NAME)
 RAW_VERSION=$(shell git describe --tags --abbrev=0)
 VERSION=$(subst v,,$(RAW_VERSION))
 COMMIT=$(shell git rev-parse HEAD)
-HASH=$(shell ./scripts/sourcehash.sh -e ./gen/main.go)
+HASH=$(shell ./scripts/sourcehash.sh -e './gen/*')
 GOFLAGS=-trimpath \
 	-mod=mod      \
 	-ldflags "-s -w \
@@ -14,6 +14,7 @@ GOFLAGS=-trimpath \
 		-X 'github.com/harrybrwn/dots/cli.Commit=$(COMMIT)'   \
 		-X 'github.com/harrybrwn/dots/cli.Hash=$(HASH)'"
 ARCH=$(shell go env GOARCH)
+DIST=release
 
 build: $(BIN) gen
 
@@ -42,20 +43,35 @@ uninstall:
 	$(RM) $(BASH_COMP)/$(NAME)
 	$(RM) ~/.local/share/man/man1/dots*
 
+test:
+	go test -cover ./...
+
 PKG=release/$(NAME)-$(VERSION)-$(ARCH)
 
 package: $(PKG).deb
 
 .PHONY: build clean gen completion man install uninstall package
 
-image:
-	docker image build -t dots:latest -f ./Dockerfile .
+# This is not really a lock file, its just a file that is created whenever we
+# build the docker image an is used as a makefile depenancy for the docker
+# image.
+IMAGE_LOCK=$(DIST)/.docker-build-lock
 
-docker:
+image: $(IMAGE_LOCK)
+
+docker: $(IMAGE_LOCK)
 	docker container run -v $(shell pwd):/dots --rm -it dots bash
 
-docker-test:
+docker-test: $(IMAGE_LOCK)
 	@scripts/docker-test.sh
+
+DOCKER_TEST_SCRIPTS=$(shell find ./tests -name 'test_*.sh')
+GOFILES=$(shell scripts/sourcehash.sh -e './gen/*' -e '*_test.go' -l)
+
+$(IMAGE_LOCK): Dockerfile $(GOFILES) $(DOCKER_TEST_SCRIPTS)
+	@if [ ! -d $(DIST) ]; then mkdir $(DIST); fi
+	docker image build -t dots:latest -f ./Dockerfile .
+	@touch $@
 
 $(PKG).deb: $(PKG)/usr/bin/$(NAME)
 	go run $(GOFLAGS) ./gen \

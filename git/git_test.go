@@ -5,7 +5,6 @@ import (
 	"io"
 	"io/fs"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"testing"
 	"time"
@@ -183,20 +182,20 @@ func TestGit_LsTree(t *testing.T) {
 func TestGit_ModifiedFiles(t *testing.T) {
 	is := is.New(t)
 	m := meta(t)
-	git := m.Git()
-	git.SetOut(io.Discard)
-	git.SetErr(io.Discard)
-	git.SetPersistentArgs([]string{"-c", "commit.gpgsign=false"})
+	g := m.Git()
+	g.SetOut(io.Discard)
+	g.SetErr(io.Discard)
+	g.SetPersistentArgs([]string{"-c", "commit.gpgsign=false"})
 	err := setupTestRepo(
-		git,
+		g,
 		newfile("test.txt", "this is a test"),
 		newfile("x", "this is not an x"),
 	)
 	is.NoErr(err)
-	is.NoErr(git.Add("test.txt", "x"))
-	is.NoErr(git.Commit("first commit"))
+	is.NoErr(g.Add("test.txt", "x"))
+	is.NoErr(g.Commit("first commit"))
 	is.NoErr(m.appendfile("test.txt", "hello"))
-	files, err := git.ModifiedFiles()
+	files, err := g.ModifiedFiles()
 	is.NoErr(err)
 	is.Equal(len(files), 1)        // should only have one file modified
 	is.Equal(files[0], "test.txt") // file should be shown as modified
@@ -370,15 +369,3 @@ func (f *file) Mode() fs.FileMode          { return fs.FileMode(0644) }
 func (f *file) ModTime() time.Time         { return time.Now() }
 func (f *file) IsDir() bool                { return false }
 func (f *file) Sys() interface{}           { return nil }
-
-func isNoErr(is *is.I, errs ...error) {
-	for _, e := range errs {
-		is.NoErr(e)
-	}
-}
-
-func debugCmd(cmd *exec.Cmd) {
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	cmd.Stdin = os.Stdin
-}

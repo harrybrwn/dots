@@ -175,16 +175,26 @@ func (g *Git) Files() ([]*Object, error) {
 type ModType byte
 
 const (
-	ModAddition ModType = 'A' // addition of a file
-	ModCopy     ModType = 'C' // copy of a file into a new one
-	ModDelete   ModType = 'D' // deletion of a file
-	ModChanged  ModType = 'M' // modification of file contents of file mode
-	ModRename   ModType = 'R' // file renamed
-	ModFileType ModType = 'T' // change in the type of file
-	ModUnmerged ModType = 'U' // file is unmerged (you must complete the merge before it can be committed)
-	ModUnknown  ModType = 'X' // this should not happen, indicator of possible bug in git
+	// Addition of a file
+	ModAddition ModType = 'A'
+	// Copy of a file into a new one
+	ModCopy ModType = 'C'
+	// Deletion of a file
+	ModDelete ModType = 'D'
+	// Modification of file contents of file mode
+	ModChanged ModType = 'M'
+	// File renamed
+	ModRename ModType = 'R'
+	// Change in the type of file
+	ModFileType ModType = 'T'
+	// File is unmerged (you must complete the merge before it can be committed)
+	ModUnmerged ModType = 'U'
+	// This should not happen, indicator of possible bug in git
+	ModUnknown ModType = 'X'
 )
 
+// ModifiedFile is a file that has been modified
+// and has a source and destination hash.
 type ModifiedFile struct {
 	Name     string
 	Type     ModType

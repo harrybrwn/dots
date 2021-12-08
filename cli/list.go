@@ -5,29 +5,35 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 
+	"github.com/harrybrwn/dots/cli/dotfiles"
 	"github.com/harrybrwn/dots/git"
+	"github.com/harrybrwn/dots/stdio"
 	"github.com/harrybrwn/dots/tree"
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
 )
 
+type CLI interface {
+	dotfiles.Repo
+	stdio.ColorOption
+}
+
 type lsFlags struct {
-	*Options
+	CLI
 	flat    bool
 	noPager bool
 }
 
-func NewLSCmd(opts *Options) *cobra.Command {
-	flags := lsFlags{Options: opts}
+func NewLSCmd(cli CLI) *cobra.Command {
+	flags := lsFlags{CLI: cli}
 	c := &cobra.Command{
 		Use:   "ls",
 		Short: "List the files being tracked",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			g := git.New(opts.repo(), opts.Root)
+			g := cli.Git()
 			files, err := g.LsFiles()
 			if err != nil {
 				return err
@@ -53,7 +59,7 @@ func NewLSCmd(opts *Options) *cobra.Command {
 			}
 			return listTree(cmd.OutOrStdout(), filenames, mods, &flags)
 		},
-		ValidArgsFunction: lsCompletionFunc(opts),
+		ValidArgsFunction: lsCompletionFunc(cli),
 	}
 	f := c.Flags()
 	f.BoolVar(&flags.flat, "flat", flags.flat, "print as flat list")
@@ -69,10 +75,10 @@ func listTree(out io.Writer, files []string, mods modSet, flags *lsFlags) error 
 		return err
 	}
 	fn := mods.treeColor
-	if flags.NoColor {
+	if flags.NoColor() {
 		fn = mods.treeNoColor
 	}
-	pager := findPager()
+	pager := stdio.FindPager()
 	if pager == "" {
 		flags.noPager = true
 	}
@@ -81,7 +87,7 @@ func listTree(out io.Writer, files []string, mods modSet, flags *lsFlags) error 
 		if err = tree.PrintColor(&buf, tr, fn); err != nil {
 			return err
 		}
-		return page(pager, out, &buf)
+		return stdio.Page(pager, out, &buf)
 	}
 	return tree.PrintColor(out, tr, fn)
 }
@@ -98,18 +104,18 @@ func listFlat(out io.Writer, files []string, flags *lsFlags) error {
 			return err
 		}
 	}
-	pager := findPager()
+	pager := stdio.FindPager()
 	if pager == "" {
 		flags.noPager = true
 	}
 	if !flags.noPager && len(files) > height {
-		return page(pager, out, &buf)
+		return stdio.Page(pager, out, &buf)
 	}
 	_, err = io.Copy(out, &buf)
 	return err
 }
 
-func lsCompletionFunc(opts *Options) func(
+func lsCompletionFunc(repo dotfiles.Repo) func(
 	_ *cobra.Command,
 	_ []string,
 	_ string,
@@ -119,7 +125,7 @@ func lsCompletionFunc(opts *Options) func(
 		_ []string,
 		toComplete string,
 	) ([]string, cobra.ShellCompDirective) {
-		files, err := opts.git().LsFiles()
+		files, err := repo.Git().LsFiles()
 		if err != nil {
 			return nil, cobra.ShellCompDirectiveError
 		}
@@ -138,41 +144,6 @@ func lsCompletionFunc(opts *Options) func(
 		}
 		return names, cobra.ShellCompDirectiveDefault
 	}
-}
-
-func findPager() (pager string) {
-	p, ok := os.LookupEnv("GIT_PAGER")
-	if ok {
-		pager = p
-	} else {
-		p, ok = os.LookupEnv("PAGER")
-		if ok {
-			pager = p
-		}
-	}
-	return pager
-}
-
-func page(pager string, stdout io.Writer, in io.Reader) error {
-	var args = make([]string, 0)
-	if pager == "less" {
-		args = append(args, "--raw-control-chars")
-	}
-	cmd := exec.Command(pager, args...)
-	cmd.Stdout = stdout
-	stdin, err := cmd.StdinPipe()
-	if err != nil {
-		return fmt.Errorf("failed to get stdin pipe: %w", err)
-	}
-	go func() {
-		defer stdin.Close()
-		io.Copy(stdin, in)
-	}()
-	err = cmd.Run()
-	if err != nil {
-		return fmt.Errorf("failed to run pager %q: %w", pager, err)
-	}
-	return nil
 }
 
 func modifiedSet(g *git.Git) (modSet, error) {
