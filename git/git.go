@@ -335,6 +335,7 @@ func (g *Git) config(flags ...string) (Config, error) {
 }
 
 func (g *Git) CurrentBranch() (string, error) {
+	// TODO git symbolic-ref --quient HEAD
 	f, err := os.OpenFile(filepath.Join(g.gitDir, "HEAD"), os.O_RDONLY, 0644)
 	if err != nil {
 		return "", err

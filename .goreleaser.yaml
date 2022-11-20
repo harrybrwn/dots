@@ -1,0 +1,58 @@
+project_name: dots
+
+before:
+  hooks:
+    - go mod tidy
+    - go run ./cmd/gen -name "{{ .ProjectName }}"
+
+snapshot:
+  name_template: '{{ incpatch .Version }}-snapshot'
+
+builds:
+  - env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - "386"
+      - amd64
+      - arm
+      - arm64
+    goarm:
+      - "6"
+      - "7"
+    flags:
+      - -trimpath
+    ldflags:
+      - -s
+      - -w
+      - -X github.com/harrybrwn/dots/cli.completions=false
+      - "-X github.com/harrybrwn/dots/cli.Version={{.Tag}}"
+      - "-X github.com/harrybrwn/dots/cli.Commit={{.Commit}}"
+
+nfpms:
+  - file_name_template: "{{ .ConventionalFileName }}"
+    id: packages
+    homepage: https://github.com/harrybrwn/dots
+    maintainer: Harry Brown
+    description: 'Manage your dotfiles.'
+    license: 'Apache 2.0'
+    vendor: harrybrwn
+    contents:
+      - src: ./release/completion/bash/dots
+        dst: /usr/share/bash-completion/completions/dots
+      - src: ./release/completion/zsh/_dots
+        dst: /usr/share/zsh/vendor-completions/_dots
+      - src: ./release/completion/fish/dots.fish
+        dst: /usr/share/fish/completions/dots.fish
+      - src: ./release/man/
+        dst: /usr/share/man/man1/
+    formats:
+      - apk
+      - deb
+      - rpm
+    dependencies:
+      - git
+

@@ -5,7 +5,7 @@ BIN=release/bin/$(NAME)
 RAW_VERSION=$(shell git describe --tags --abbrev=0)
 VERSION=$(subst v,,$(RAW_VERSION))
 COMMIT=$(shell git rev-parse HEAD)
-HASH=$(shell ./scripts/sourcehash.sh -e './gen/*')
+HASH=$(shell ./scripts/sourcehash.sh -e './cmd/gen/*')
 GOFLAGS=-trimpath \
 	-mod=mod      \
 	-ldflags "-s -w \
@@ -19,10 +19,10 @@ DIST=release
 build: $(BIN) gen
 
 clean:
-	$(RM) -r release
+	$(RM) -r release dist
 
 gen completion man:
-	go run ./gen
+	go run ./cmd/gen -name=$(NAME)
 
 ZSH_COMP=~/.config/zsh/oh-my-zsh/completions
 BASH_COMP=~/.local/share/bash-completion/completions
@@ -43,6 +43,10 @@ uninstall:
 	$(RM) $(BASH_COMP)/$(NAME)
 	$(RM) ~/.local/share/man/man1/dots*
 
+.PHONY: snapshot
+snapshot:
+	goreleaser release --skip-publish --skip-announce --auto-snapshot --rm-dist
+
 test:
 	go test -cover ./...
 
@@ -60,13 +64,17 @@ IMAGE_LOCK=$(DIST)/.docker-build-lock
 image: $(IMAGE_LOCK)
 
 docker: $(IMAGE_LOCK)
-	docker container run -v $(shell pwd):/dots --rm -it dots bash
+	docker container run                  \
+		-e SSH_AUTH_SOCK=/ssh-auth-sock   \
+		-v $$SSH_AUTH_SOCK:/ssh-auth-sock \
+		-v $(shell pwd):/dots             \
+		--rm -it dots bash
 
 docker-test: $(IMAGE_LOCK)
 	@scripts/docker-test.sh
 
 DOCKER_TEST_SCRIPTS=$(shell find ./tests -name 'test_*.sh')
-GOFILES=$(shell scripts/sourcehash.sh -e './gen/*' -e '*_test.go' -l)
+GOFILES=$(shell scripts/sourcehash.sh -e '*_test.go' -e './cmd/gen/*' -l)
 
 $(IMAGE_LOCK): Dockerfile $(GOFILES) $(DOCKER_TEST_SCRIPTS)
 	@if [ ! -d $(DIST) ]; then mkdir $(DIST); fi
@@ -74,7 +82,7 @@ $(IMAGE_LOCK): Dockerfile $(GOFILES) $(DOCKER_TEST_SCRIPTS)
 	@touch $@
 
 $(PKG).deb: $(PKG)/usr/bin/$(NAME)
-	go run $(GOFLAGS) ./gen \
+	go run $(GOFLAGS) ./cmd/gen \
 		-deb            \
 		-package=$(PKG) \
 		-name=$(NAME)   \
@@ -82,4 +90,4 @@ $(PKG).deb: $(PKG)/usr/bin/$(NAME)
 	dpkg-deb --build $(PKG)
 
 %/bin/$(NAME): $(SOURCE)
-	CGO_ENABLED=0 go build -tags no_cobra_completion $(GOFLAGS) -o $@
+	CGO_ENABLED=0 go build $(GOFLAGS) -o $@ ./cmd/dots

@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -11,6 +10,7 @@ import (
 
 	"github.com/harrybrwn/dots/cli/dotfiles"
 	"github.com/harrybrwn/dots/git"
+	"github.com/pkg/errors"
 	"github.com/spf13/cobra"
 )
 
@@ -115,14 +115,24 @@ func NewVersionCmd() *cobra.Command {
 	}
 }
 
-func NewAddCmd(r dotfiles.Repo) *cobra.Command {
+func NewAddCmd(opts *Options) *cobra.Command {
+	var up bool // --update
 	c := &cobra.Command{
 		Use: "add <file...>", Short: "Add new files.",
 		Args: cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return add(r, args)
+			g := opts.Git()
+			if up {
+				updated, err := getUpdated(g, opts, nil)
+				if err != nil {
+					return errors.Wrap(err, "could not list updated files")
+				}
+				args = append(args, updated...)
+			}
+			return add(g, args)
 		},
 	}
+	c.Flags().BoolVarP(&up, "update", "u", up, "update any changed files as well as add new ones")
 	return c
 }
 
@@ -220,8 +230,7 @@ func NewCloneCmd(opts *Options) *cobra.Command {
 	return c
 }
 
-func add(r dotfiles.Repo, files []string) (err error) {
-	git := r.Git()
+func add(git *git.Git, files []string) (err error) {
 	if !git.Exists() {
 		err = git.InitBare()
 		if err != nil {
@@ -244,22 +253,9 @@ func add(r dotfiles.Repo, files []string) (err error) {
 
 func update(opts *Options, updated []string) (err error) {
 	g := opts.git()
-	if len(updated) == 0 {
-		objects, err := g.Modifications()
-		if err != nil {
-			return err
-		}
-		updated = make([]string, 0, len(objects))
-		for _, o := range objects {
-			updated = append(updated, filepath.Join(g.WorkingTree(), o.Name))
-		}
-	} else {
-		for i, f := range updated {
-			updated[i] = filepath.Join(g.WorkingTree(), f)
-		}
-	}
-	if opts.HasReadme() {
-		updated = removeReadme(updated)
+	updated, err = getUpdated(g, opts, updated)
+	if err != nil {
+		return err
 	}
 	err = g.Add(updated...)
 	if err != nil {
@@ -271,6 +267,25 @@ func update(opts *Options, updated []string) (err error) {
 	)
 	g.SetOut(os.Stdout)
 	return g.Commit(commitMessage("update", updated))
+}
+
+func getUpdated(g *git.Git, opts *Options, updated []string) ([]string, error) {
+	if len(updated) > 0 {
+		for i, f := range updated {
+			updated[i] = filepath.Join(g.WorkingTree(), f)
+		}
+	}
+	objects, err := g.Modifications()
+	if err != nil {
+		return nil, err
+	}
+	for _, o := range objects {
+		updated = append(updated, filepath.Join(g.WorkingTree(), o.Name))
+	}
+	if opts.HasReadme() {
+		updated = removeReadme(updated)
+	}
+	return updated, nil
 }
 
 func removeReadme(files []string) []string {

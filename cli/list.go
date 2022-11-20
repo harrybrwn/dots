@@ -10,7 +10,7 @@ import (
 
 	"github.com/harrybrwn/dots/cli/dotfiles"
 	"github.com/harrybrwn/dots/git"
-	"github.com/harrybrwn/dots/stdio"
+	"github.com/harrybrwn/dots/pkg/stdio"
 	"github.com/harrybrwn/dots/tree"
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
