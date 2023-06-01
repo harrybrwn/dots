@@ -115,7 +115,7 @@ func NewCatCmd(opts *Options) *cobra.Command {
 func newUtilCommands(opts *Options) []*cobra.Command {
 	return []*cobra.Command{
 		{
-			Use: "command", Short: "Print the internal git command being used",
+			Use: "show-command", Short: "Print the internal git command being used",
 			Aliases: []string{"cmd"},
 			RunE: func(cmd *cobra.Command, args []string) error {
 				g := opts.git()
@@ -173,7 +173,7 @@ func newUtilCommands(opts *Options) []*cobra.Command {
 				git := opts.git()
 				git.SetOut(cmd.OutOrStdout())
 				c := git.Cmd(
-					"logs", "--all", "--graph", "--abbrev-commit",
+					"log", "--all", "--graph", "--abbrev-commit",
 					"--decorate", "--oneline",
 					"--date", "format:%a %b %d %l:%M:%S %P %Y",
 				)

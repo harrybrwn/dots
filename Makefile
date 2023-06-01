@@ -63,11 +63,11 @@ IMAGE_LOCK=$(DIST)/.docker-build-lock
 
 image: $(IMAGE_LOCK)
 
-docker: $(IMAGE_LOCK)
+container: $(IMAGE_LOCK)
 	docker container run                  \
 		-e SSH_AUTH_SOCK=/ssh-auth-sock   \
 		-v $$SSH_AUTH_SOCK:/ssh-auth-sock \
-		-v $(shell pwd):/dots             \
+		-v $(shell pwd):/dots:ro          \
 		--rm -it dots bash
 
 docker-test: $(IMAGE_LOCK)

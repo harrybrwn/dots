@@ -34,6 +34,7 @@ type Options struct {
 	Root      string // Root of user-added files
 	ConfigDir string // Internal config folder
 	noColor   bool
+	verbose   bool
 
 	gitArgs []string
 }
@@ -85,6 +86,7 @@ func NewRootCmd() *cobra.Command {
 		NewCloneCmd(&opts),
 		NewStatusCmd(&opts),
 		NewInstallCmd(&opts),
+		NewUninstallCmd(&opts),
 		NewGitCmd(&opts),
 
 		NewUtilCmd(&opts),
@@ -96,6 +98,7 @@ func NewRootCmd() *cobra.Command {
 	f.StringVarP(&opts.Root, "dir", "d", opts.Root, "base of the git tree (where your configuration lives)")
 	// f.StringVarP(&opts.Root, "root", "r", opts.Root, "root of the git tree (where your configuration lives)")
 	f.BoolVar(&opts.noColor, "no-color", opts.noColor, "disable color output")
+	f.BoolVarP(&opts.verbose, "verbose", "v", opts.verbose, "run commands verbosely")
 	f.StringSliceVar(&opts.gitArgs, "git-args", opts.gitArgs,
 		"pass additional flags or arguments to the git command internally")
 	c.SetUsageTemplate(IndentedCobraUsageTemplate)
@@ -158,7 +161,7 @@ func NewRemoveCmd(r dotfiles.Repo) *cobra.Command {
 func NewUpdateCmd(opts *Options) *cobra.Command {
 	return &cobra.Command{
 		Use:   "update [files...]",
-		Short: "Update files that have been modified",
+		Short: "Update files in local git repo that have been modified",
 		Long: "" +
 			"Update is similar to 'add' in that it updates\n" +
 			"the internal repository with new changes except that\n" +
@@ -223,7 +226,24 @@ func NewCloneCmd(opts *Options) *cobra.Command {
 			if !force && exists(opts.repo()) {
 				return fmt.Errorf("repository %q already exists", opts.repo())
 			}
-			return execute(git.Cmd("clone", "--bare", args[0], opts.repo()))
+			// TODO after cloning run `git branch --set-upstream-to=origin/<branch> master`
+			// to set the default branch so that we can have clean git pulls.
+			//
+			// Or better yet, do this by changing .git/config to have:
+			//	[branch "master"]
+			//		remote = origin
+			//		merge = refs/heads/master
+			//
+			// This can also be made smarter by using the default branch name
+			// that is used right after cloning the repo.
+			//
+			// Also add ~/.dots and ~/.config/dots to the repo's gitignore
+			err := execute(git.Cmd("clone", "--bare", args[0], opts.repo()))
+			if err != nil {
+				return err
+			}
+			// Configure git to ignore files that are not being tracked
+			return git.ConfigLocalSet("status.showUntrackedFiles", "no")
 		},
 	}
 	c.Flags().BoolVarP(&force, "force", "f", force, "overwrite the existing repo")
@@ -283,14 +303,18 @@ func getUpdated(g *git.Git, opts *Options, updated []string) ([]string, error) {
 		updated = append(updated, filepath.Join(g.WorkingTree(), o.Name))
 	}
 	if opts.HasReadme() {
-		updated = removeReadme(updated)
+		updated = removeReadme(opts.Root, updated)
 	}
 	return updated, nil
 }
 
-func removeReadme(files []string) []string {
+func removeReadme(base string, files []string) []string {
 	for i, f := range files {
-		if filepath.Base(f) == ReadMeName {
+		p, err := filepath.Rel(base, f)
+		if err != nil {
+			continue
+		}
+		if p == ReadMeName {
 			return remove(i, files)
 		}
 	}

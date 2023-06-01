@@ -3,7 +3,7 @@ project_name: dots
 before:
   hooks:
     - go mod tidy
-    - go run ./cmd/gen -name "{{ .ProjectName }}"
+    - go generate ./...
 
 snapshot:
   name_template: '{{ incpatch .Version }}-snapshot'
@@ -55,4 +55,3 @@ nfpms:
       - rpm
     dependencies:
       - git
-

@@ -12,8 +12,3 @@ if ! inside_docker; then
 	echo 'Error: not running inside docker container'
 	exit 1
 fi
-
-echo ".ash_history" >> ~/.gitignore
-echo ".cache" >> ~/.gitignore
-echo ".dots" >> ~/.gitignore
-echo ".config/dots/repo" >> ~/.gitignore

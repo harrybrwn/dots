@@ -35,10 +35,12 @@ func TestRemoveReadme(t *testing.T) {
 	files := []string{
 		"/path/to/another",
 		"/path/to/README.md",
+		"/path/to/internal/README.md",
 		"/home/user/.bashrc",
 	}
-	files = removeReadme(files)
-	is.Equal(len(files), 2)
+	files = removeReadme("/path/to/", files)
+	is.Equal(len(files), 3)
 	is.Equal(files[0], "/path/to/another")
 	is.Equal(files[1], "/home/user/.bashrc")
+	is.Equal(files[2], "/path/to/internal/README.md")
 }
