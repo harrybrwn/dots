@@ -17,7 +17,8 @@ RUN apk update && \
         bash-completion \
         make            \
         vim             \
-        openssh
+        openssh         \
+        less
 RUN mkdir ~/.vim ~/.ssh && \
     # SSH
     ssh-keyscan -t rsa github.com >> ~/.ssh/known_hosts && \
@@ -30,6 +31,9 @@ RUN mkdir ~/.vim ~/.ssh && \
                 la='ls -A --group-directories-first'" >> ~/.bashrc
 COPY --from=builder /dots/release/bin/dots /usr/bin/dots
 COPY --from=builder /dots/release/completion/bash/dots /usr/share/bash-completion/completions
+
+ENV PAGER=less
+ENV LESS=--RAW-CONTROL-CHARS
 
 VOLUME /dots
 WORKDIR /dots

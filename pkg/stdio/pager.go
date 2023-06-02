@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"strings"
 
 	"github.com/mattn/go-shellwords"
 )
@@ -36,6 +37,14 @@ func Page(pager string, out io.Writer, in io.Reader) error {
 }
 
 func FindPager() (pager string) {
+	if dotsPager, ok := os.LookupEnv("DOTS_PAGER"); ok {
+		switch strings.ToLower(dotsPager) {
+		case "false", "0":
+			return ""
+		default:
+			return dotsPager
+		}
+	}
 	p, ok := os.LookupEnv("GIT_PAGER")
 	if ok {
 		pager = p

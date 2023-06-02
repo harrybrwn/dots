@@ -59,14 +59,14 @@ func PrintColor(w io.Writer, t *Node, prehook func(*Node) string) error {
 
 // PrintHeight will return the height of the output if Print is called.
 func PrintHeight(tree *Node) int {
+	var n int = 1
 	if len(tree.children) == 0 {
-		return 1
+		return n
 	}
-	var n int
 	for _, ch := range tree.children {
 		n += PrintHeight(ch)
 	}
-	return n + 1
+	return n
 }
 
 func ColorFolders(n *Node) string {

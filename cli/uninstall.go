@@ -42,7 +42,7 @@ func NewUninstallCmd(opts *Options) *cobra.Command {
 				err = os.Remove(d)
 				if err != nil {
 					if errors.Is(err, syscall.ENOTEMPTY) {
-						cmd.Println("%q is not empty, skipping\n", d)
+						cmd.Printf("%q is not empty, skipping\n", d)
 						continue
 					}
 					return err

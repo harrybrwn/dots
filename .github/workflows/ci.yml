@@ -1,0 +1,51 @@
+on:
+  - push
+name: ci
+jobs:
+  lint:
+    name: lint
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v3
+    - name: Setup Go
+      uses: actions/setup-go@v2
+      with:
+        go-version: ~1.19
+    - run: go vet -v ./...
+    - name: golangci-lint
+      uses: golangci/golangci-lint-action@v2
+      with:
+        args: --disable unused
+
+  test:
+    name: test
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v3
+    - name: Setup Go
+      uses: actions/setup-go@v2
+      with:
+        go-version: ~1.19
+    - id: go-version
+      run: echo "version-used=$(go env GOVERSION)" >> "$GITHUB_OUTPUT"
+      shell: sh
+    - name: Cache Dependencies
+      uses: actions/cache@v2
+      id: go-cache
+      with:
+        path: |
+          ~/go/pkg/mod
+          ~/.cache/go-build
+          ~/go/bin
+        key: ${{ runner.os }}_${{ runner.arch }}-${{ steps.go-version.outputs.version-used }}-build-${{ hashFiles('**/go.sum') }}
+        restore-keys: |
+          ${{ runner.os }}_${{ runner.arch }}-${{ steps.go-version.outputs.version-used }}-build-
+    - name: Install Go dependencies
+      if: steps.go-cache.outputs.cache-hit != 'true'
+      run: go mod download
+    - name: Generate test files
+      run: go generate ./...
+    - name: Run tests
+      run: go test -v ./...

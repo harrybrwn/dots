@@ -31,6 +31,7 @@
               "-X" "github.com/harrybrwn/dots/cli.Version=v${version}"
               "-X" "github.com/harrybrwn/dots/cli.Commit=${commit}"
               "-X" "github.com/harrybrwn/dots/cli.Hash=${commit}"
+              "-X" "github.com/harrybrwn/dots/cli.Date=${lastModifiedDate}"
             ];
             #vendorSha256 = pkgs.lib.fakeSha256;
             vendorSha256 = "sha256-VQ70WpzZhpr+3XwtZykdCvN82Oe5QnxbdnDSOlKSZoc=";

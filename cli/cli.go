@@ -24,6 +24,7 @@ var (
 	Version string // release version
 	Commit  string // git commit of release
 	Hash    string // sha256 of source code
+	Date    string
 
 	// set at compile time with -ldflags
 	// "false" to disable completions command
@@ -112,8 +113,11 @@ func NewVersionCmd() *cobra.Command {
 		Run: func(cmd *cobra.Command, args []string) {
 			fmt.Fprintf(
 				cmd.OutOrStdout(),
-				"%s\ncommit: %s\nhash:   %s\n",
-				Version, Commit, Hash)
+				"%s\n"+
+					"commit:     %s\n"+
+					"build date: %s\n"+
+					"hash:       %s\n",
+				Version, Commit, Date, Hash)
 		},
 	}
 }

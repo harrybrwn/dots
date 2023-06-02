@@ -3,6 +3,7 @@ SOURCE=$(shell ./scripts/sourcehash.sh -e ./gen/main.go -l)
 COMP=release/completion
 BIN=release/bin/$(NAME)
 RAW_VERSION=$(shell git describe --tags --abbrev=0)
+DATE=$(shell date +%FT%T%:z)
 VERSION=$(subst v,,$(RAW_VERSION))
 COMMIT=$(shell git rev-parse HEAD)
 HASH=$(shell ./scripts/sourcehash.sh -e './cmd/gen/*')
@@ -12,7 +13,8 @@ GOFLAGS=-trimpath \
 		-X 'github.com/harrybrwn/dots/cli.completions=false'  \
 		-X 'github.com/harrybrwn/dots/cli.Version=v$(VERSION)' \
 		-X 'github.com/harrybrwn/dots/cli.Commit=$(COMMIT)'   \
-		-X 'github.com/harrybrwn/dots/cli.Hash=$(HASH)'"
+		-X 'github.com/harrybrwn/dots/cli.Hash=$(HASH)' \
+		-X 'github.com/harrybrwn/dots/cli.Date=$(DATE)'"
 ARCH=$(shell go env GOARCH)
 DIST=release
 
@@ -32,7 +34,8 @@ install: $(BIN) gen
 	@if [ ! -d $(BASH_COMP) ]; then mkdir -p $(BASH_COMP); fi
 	@if [ ! -d $(ZSH_COMP) ];  then mkdir -p $(ZSH_COMP);  fi
 	@if [ ! -d $(MAN_DIR_LOCAL) ]; then mkdir -p $(MAN_DIR_LOCAL); fi
-	install $(BIN) $$GOPATH/bin/
+	# install $(BIN) $$GOPATH/bin/
+	cp $(BIN) $$GOPATH/bin/
 	cp $(COMP)/bash/$(NAME) $(BASH_COMP)
 	cp $(COMP)/zsh/_$(NAME) $(ZSH_COMP)
 	cp release/man/dots* $(MAN_DIR_LOCAL)

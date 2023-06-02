@@ -196,6 +196,18 @@ func newUtilCommands(opts *Options) []*cobra.Command {
 				return git.Commit("added readme")
 			},
 		},
+		{
+			Use:   "fix",
+			Short: "Fix environment or configuration",
+			RunE: func(cmd *cobra.Command, args []string) error {
+				g := opts.git()
+				err := g.ConfigLocalSet("status.showUntrackedFiles", "no")
+				if err != nil {
+					return err
+				}
+				return nil
+			},
+		},
 	}
 }
 
