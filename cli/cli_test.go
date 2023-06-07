@@ -44,3 +44,28 @@ func TestRemoveReadme(t *testing.T) {
 	is.Equal(files[1], "/home/user/.bashrc")
 	is.Equal(files[2], "/path/to/internal/README.md")
 }
+
+func TestDirContainsPath(t *testing.T) {
+	type table struct {
+		dir  string
+		path string
+		exp  bool
+	}
+	for _, tt := range []table{
+		{dir: "/", path: "/", exp: false},
+		{dir: "/", path: "/x", exp: true},
+		{dir: "/x", path: "/", exp: false},
+		{dir: "/home/jim", path: "/home/jim/.config/dots/repo", exp: true},
+		{dir: "/home/jim/.cache", path: "/home/jim/.config/dots/repo", exp: false},
+	} {
+		res := dirContainsPath(tt.dir, tt.path)
+		if res != tt.exp && tt.exp {
+			t.Errorf("path %q is expected to be a subpath of %q", tt.path, tt.dir)
+			return
+		}
+		if res != tt.exp && !tt.exp {
+			t.Errorf("path %q is not expected to be a subpath of %q", tt.path, tt.dir)
+			return
+		}
+	}
+}

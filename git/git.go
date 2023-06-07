@@ -73,13 +73,17 @@ func (g *Git) SetPersistentArgs(args []string) { g.args = args }
 
 // AppendPersistentArgs will append to the array of arguments passed internally
 // to the git command whenever the Cmd function is called.
-func (g *Git) AppendPersistendArgs(args ...string) { g.args = append(g.args, args...) }
+func (g *Git) AppendPersistentArgs(args ...string) { g.args = append(g.args, args...) }
 
 func (g *Git) Add(paths ...string) error {
 	if len(paths) == 0 {
 		return errors.New("no paths to add")
 	}
 	return run(g.Cmd(append([]string{"add"}, paths...)...))
+}
+
+func (g *Git) AddUpdate(paths ...string) error {
+	return run(g.Cmd(append([]string{"add", "--update"}, paths...)...))
 }
 
 func (g *Git) Remove(files ...string) error {
@@ -282,6 +286,11 @@ func (g *Git) HasRemote() bool {
 
 type Config map[string]interface{}
 
+func (c Config) Exists(key string) bool {
+	_, ok := c[key]
+	return ok
+}
+
 func (g *Git) Config() (Config, error) {
 	return g.config("--list")
 }
@@ -300,6 +309,10 @@ func (g *Git) ConfigSet(key, value string) error {
 
 func (g *Git) ConfigLocalSet(key, value string) error {
 	return run(g.Cmd("config", "--local", key, value))
+}
+
+func (g *Git) ConfigGlobalSet(key, value string) error {
+	return run(g.Cmd("config", "--global", key, value))
 }
 
 func (g *Git) SetArgs(arguments ...string) { g.args = arguments }

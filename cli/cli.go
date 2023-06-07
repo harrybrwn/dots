@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bufio"
 	"fmt"
 	"io"
 	"os"
@@ -15,9 +16,10 @@ import (
 )
 
 const (
-	ReadMeName = dotfiles.ReadMeName
-	name       = "dots"
-	repo       = "repo"
+	ReadMeName    = dotfiles.ReadMeName
+	name          = "dots"
+	repo          = "repo"
+	DefaultBranch = "main"
 )
 
 var (
@@ -38,6 +40,9 @@ type Options struct {
 	verbose   bool
 
 	gitArgs []string
+
+	user  string
+	email string
 }
 
 func (o *Options) repo() string {
@@ -56,20 +61,44 @@ func (o *Options) HasReadme() bool {
 	return exists(filepath.Join(o.ConfigDir, ReadMeName))
 }
 
+func (o *Options) excludesFile() string {
+	return filepath.Join(o.ConfigDir, "ignore")
+}
+
+func (o *Options) applyUserTo(g interface{ AppendPersistentArgs(...string) }) {
+	g.AppendPersistentArgs(
+		"-c", fmt.Sprintf("user.name=%s", o.user),
+		"-c", fmt.Sprintf("user.email=%s", o.email),
+	)
+}
+
+type FlagSet interface {
+	StringVar(ptr *string, name, value, description string)
+	StringVarP(prt *string, name, shorthand, value, description string)
+	BoolVarP(prt *bool, name, shorthand string, value bool, description string)
+}
+
+func (o *Options) addUserFlags(set FlagSet) {
+	set.StringVarP(&o.user, "user", "U", o.user, "username used to make git commits")
+	set.StringVarP(&o.email, "email", "e", o.email, "email used to make git commits")
+}
+
 func NewRootCmd() *cobra.Command {
 	var (
 		opts = Options{
 			Root:      os.Getenv("HOME"),
 			ConfigDir: configdir(),
+			user:      "dots",
+			email:     "dots@gopkgs.hrry.dev",
 		}
 		c = &cobra.Command{
 			Use:   name,
 			Short: "Manage your dot files.",
-			Long: "" +
-				"Manage your dots files without the hassle of working with git bare repos.\n" +
-				"That statmement is to some degree untrue because that is all this tool\n" +
-				"does under the hood. It handles all the crusty parts of managing a bare\n" +
-				"git repo so that you don't have too.\n",
+			Long: `
+Manage your dots files without the hassle of working with git bare repos.
+That statmement is to some degree untrue because that is all this tool
+does under the hood. It handles all the crusty parts of managing a bare
+git repo so that you don't have too.`,
 			SilenceErrors: true,
 			SilenceUsage:  true,
 			CompletionOptions: cobra.CompletionOptions{
@@ -83,8 +112,10 @@ func NewRootCmd() *cobra.Command {
 		NewRemoveCmd(&opts),
 		NewUpdateCmd(&opts),
 		NewSyncCmd(&opts),
+		NewUndoCmd(&opts),
 
 		NewCloneCmd(&opts),
+		NewInitCmd(&opts),
 		NewStatusCmd(&opts),
 		NewInstallCmd(&opts),
 		NewUninstallCmd(&opts),
@@ -136,34 +167,46 @@ func NewAddCmd(opts *Options) *cobra.Command {
 				}
 				args = append(args, updated...)
 			}
-			return add(g, args)
+			return add(opts, g, args)
 		},
 	}
 	c.Flags().BoolVarP(&up, "update", "u", up, "update any changed files as well as add new ones")
+	opts.addUserFlags(c.Flags())
 	return c
 }
 
-func NewRemoveCmd(r dotfiles.Repo) *cobra.Command {
+func NewRemoveCmd(opts *Options) *cobra.Command {
 	c := &cobra.Command{
 		Use:   "rm <name...>",
 		Short: "Remove files from internal tracking",
-		Long: "" +
-			"Remove files from the internal git repo. This is\n" +
-			"not remove an files on disk.",
-		Args: cobra.MinimumNArgs(1),
+		Long:  "Remove files from the internal git repo. This will not remove any files on disk.",
+		Args:  cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if err := cleanPaths(args); err != nil {
 				return err
 			}
-			return r.Git().Remove(args...)
+			g := opts.Git()
+			err := g.Remove(args...)
+			if err != nil {
+				return err
+			}
+			if err = g.AddUpdate(args...); err != nil {
+				return err
+			}
+			opts.applyUserTo(g)
+			if err = g.Commit(commitMessage("remove", args)); err != nil {
+				return err
+			}
+			return nil
 		},
-		ValidArgsFunction: filesCompletionFunc(r),
+		ValidArgsFunction: filesCompletionFunc(opts),
 	}
+	opts.addUserFlags(c.Flags())
 	return c
 }
 
 func NewUpdateCmd(opts *Options) *cobra.Command {
-	return &cobra.Command{
+	c := cobra.Command{
 		Use:   "update [files...]",
 		Short: "Update files in local git repo that have been modified",
 		Long: "" +
@@ -179,6 +222,8 @@ func NewUpdateCmd(opts *Options) *cobra.Command {
 		},
 		ValidArgsFunction: modifiedCompletionFunc(opts),
 	}
+	opts.addUserFlags(c.Flags())
+	return &c
 }
 
 func NewSyncCmd(r dotfiles.Repo) *cobra.Command {
@@ -247,14 +292,22 @@ func NewCloneCmd(opts *Options) *cobra.Command {
 				return err
 			}
 			// Configure git to ignore files that are not being tracked
-			return git.ConfigLocalSet("status.showUntrackedFiles", "no")
+			err = git.ConfigLocalSet("status.showUntrackedFiles", "no")
+			if err != nil {
+				return err
+			}
+			err = git.ConfigLocalSet("core.excludesFile", opts.excludesFile())
+			if err != nil {
+				return err
+			}
+			return writeGitignore(opts)
 		},
 	}
 	c.Flags().BoolVarP(&force, "force", "f", force, "overwrite the existing repo")
 	return c
 }
 
-func add(git *git.Git, files []string) (err error) {
+func add(opts *Options, git *git.Git, files []string) (err error) {
 	if !git.Exists() {
 		err = git.InitBare()
 		if err != nil {
@@ -268,10 +321,7 @@ func add(git *git.Git, files []string) (err error) {
 	if err != nil {
 		return err
 	}
-	git.AppendPersistendArgs(
-		"-c", "user.name=dots",
-		"-c", "user.email=dots@harrybrwn.com",
-	)
+	opts.applyUserTo(git)
 	return git.Commit(commitMessage("add", files))
 }
 
@@ -285,10 +335,7 @@ func update(opts *Options, updated []string) (err error) {
 	if err != nil {
 		return err
 	}
-	g.AppendPersistendArgs(
-		"-c", "user.name=dots",
-		"-c", "user.email=dots@harrybrwn.com",
-	)
+	opts.applyUserTo(g)
 	g.SetOut(os.Stdout)
 	return g.Commit(commitMessage("update", updated))
 }
@@ -359,6 +406,91 @@ func NewGitCmd(r dotfiles.Repo) *cobra.Command {
 	}
 }
 
+func dirContainsPath(dir, path string) bool {
+	base := strings.Split(dir, string(filepath.Separator))
+	test := strings.Split(path, string(filepath.Separator))
+	if dir == "/" {
+		base = []string{""}
+	}
+	if path == "/" {
+		test = []string{""}
+	}
+	if len(base) == 0 || len(test) == 0 || len(base) > len(test) {
+		return false
+	}
+	N := max(len(base), len(test))
+	n := min(len(base), len(test))
+	for i := 0; i < N; i++ {
+		if i >= n {
+			return true
+		}
+		if base[i] != test[i] {
+			return false
+		}
+	}
+	return false
+}
+
+func max(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
+func writeGitignore(opts *Options) error {
+	filename := opts.excludesFile()
+	// Entries in the global gitignore have to be relative for some reason.
+	ignored, err := filepath.Rel(opts.Root, opts.repo())
+	if err != nil {
+		return err
+	}
+	if !exists(filename) {
+		f, err := os.Create(filename)
+		if err != nil {
+			return err
+		}
+		defer f.Close()
+		_, err = f.WriteString(fmt.Sprintf("%s\n", ignored))
+		if err != nil {
+			return err
+		}
+	} else {
+		f, err := os.OpenFile(filename, os.O_RDWR|os.O_APPEND, os.FileMode(0644))
+		if err != nil {
+			return err
+		}
+		defer f.Close()
+		found := false
+		buf := bufio.NewScanner(f)
+		for buf.Scan() {
+			if strings.Trim(buf.Text(), "\n\t ") == ignored {
+				found = true
+				break
+			}
+		}
+		if err = buf.Err(); err != nil {
+			return err
+		}
+		if !found {
+			if _, err = f.WriteString(ignored); err != nil {
+				return err
+			}
+			if _, err = f.Write([]byte{'\n'}); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
 type completeFunc func(
 	_ *cobra.Command,
 	_ []string,
@@ -394,7 +526,9 @@ func newTestCmd(opts *Options) *cobra.Command {
 	return &cobra.Command{
 		Use:    "test",
 		Hidden: true,
-		RunE:   func(cmd *cobra.Command, args []string) error { return nil },
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return writeGitignore(opts)
+		},
 	}
 }
 

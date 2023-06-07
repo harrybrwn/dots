@@ -205,6 +205,25 @@ func newUtilCommands(opts *Options) []*cobra.Command {
 				if err != nil {
 					return err
 				}
+				conf, err := g.Config()
+				if err != nil {
+					return err
+				}
+				_, ok := conf["init.defaultBranch"]
+				if !ok {
+					err = g.ConfigGlobalSet("init.defaultBranch", DefaultBranch)
+					if err != nil {
+						return err
+					}
+				}
+				err = g.ConfigLocalSet("core.excludesFile", opts.excludesFile())
+				if err != nil {
+					return err
+				}
+				err = writeGitignore(opts)
+				if err != nil {
+					return err
+				}
 				return nil
 			},
 		},

@@ -21,7 +21,7 @@ DIST=release
 build: $(BIN) gen
 
 clean:
-	$(RM) -r release dist
+	$(RM) -r release dist result
 
 gen completion man:
 	go run ./cmd/gen -name=$(NAME)
@@ -71,6 +71,7 @@ container: $(IMAGE_LOCK)
 		-e SSH_AUTH_SOCK=/ssh-auth-sock   \
 		-v $$SSH_AUTH_SOCK:/ssh-auth-sock \
 		-v $(shell pwd):/dots:ro          \
+		-w /root                          \
 		--rm -it dots bash
 
 docker-test: $(IMAGE_LOCK)

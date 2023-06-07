@@ -15,7 +15,7 @@ func NewUninstallCmd(opts *Options) *cobra.Command {
 		Use:   "uninstall",
 		Short: "Remove all managed files.",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			g := opts.git()
+			g := opts.Git()
 			objects, err := g.Files()
 			if err != nil {
 				return err
@@ -37,6 +37,7 @@ func NewUninstallCmd(opts *Options) *cobra.Command {
 				}
 			}
 			directories := sort.StringSlice(dirs)
+			// Sorted so that child directories are removed before parents
 			sort.Sort(sort.Reverse(directories))
 			for _, d := range dirs {
 				err = os.Remove(d)

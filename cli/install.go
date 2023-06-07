@@ -51,7 +51,7 @@ func NewInstallCmd(opts *Options) *cobra.Command {
 				return err
 			}
 
-			if exists(filepath.Join(opts.ConfigDir, ReadMeName)) {
+			if opts.HasReadme() {
 				err = restoreReadMe(git)
 				if err != nil {
 					return errors.Wrap(err, "failed to restore repo's base README.md")
