@@ -12,10 +12,11 @@ import (
 	"runtime"
 	"strings"
 
-	"github.com/harrybrwn/dots/cli"
 	"github.com/pkg/errors"
 	"github.com/spf13/cobra"
 	cobradoc "github.com/spf13/cobra/doc"
+
+	"github.com/harrybrwn/dots/cli"
 )
 
 type ShellType string
@@ -42,14 +43,14 @@ type Flags struct {
 	description string
 }
 
-func (f *Flags) install(flag *flag.FlagSet) {
+func (f *Flags) install(flag *flag.FlagSet) error {
 	flag.StringVar(&f.ReleaseDir, "release", DefaultReleaseDir, "specify the release directory")
 	flag.StringVar(&f.Name, "name", f.Name, "specify the program name (will effect completion scripts and man page file names)")
 	flag.StringVar(&f.version, "version", cli.Version, "give the release a version")
 	flag.StringVar(&f.packageDir, "package", f.packageDir, "directory that the debian package is being built from")
 	flag.BoolVar(&f.deb, "deb", f.deb, "generate files for a debian package")
 	flag.StringVar(&f.description, "description", f.description, "debian package description")
-	flag.Parse(os.Args[1:])
+	return flag.Parse(os.Args[1:])
 }
 
 func (f *Flags) validate() error {
@@ -80,7 +81,10 @@ func main() {
 		completionDir string
 		manDir        string
 	)
-	flags.install(flag.CommandLine)
+	err := flags.install(flag.CommandLine)
+	if err != nil {
+		log.Fatal(err)
+	}
 	if flags.Name == "" {
 		fail("Error: no -name flag specified")
 	}
@@ -102,22 +106,32 @@ func main() {
 		if err != nil {
 			log.Fatal(err)
 		}
-		os.MkdirAll(filepath.Join(flags.packageDir, "DEBIAN"), 0755) // silent
-		os.MkdirAll(filepath.Join(flags.packageDir, "usr", "bin"), 0755)
+		_ = os.MkdirAll(filepath.Join(flags.packageDir, "DEBIAN"), 0755) // silent
+		_ = os.MkdirAll(filepath.Join(flags.packageDir, "usr", "bin"), 0755)
 		control := filepath.Join(flags.packageDir, "DEBIAN", "control")
 		f, err := os.Create(control)
 		if err != nil {
 			log.Fatal(err)
 		}
 		defer f.Close()
-		f.WriteString(fmt.Sprintf("Package: %s\n", flags.Name))
-		f.WriteString(fmt.Sprintf("Version: %s\n", flags.version))
-		f.WriteString(fmt.Sprintf("Architecture: %s\n", runtime.GOARCH))
-		f.WriteString("Depends: git\nPriority: optional\n")
-		if flags.description != "" {
-			f.WriteString(fmt.Sprintf("Description: %s\n", flags.description))
+		for _, err := range []error{
+			eat(fmt.Fprintf(f, "Package: %s\n", flags.Name)),
+			eat(fmt.Fprintf(f, "Version: %s\n", flags.version)),
+			eat(fmt.Fprintf(f, "Architecture: %s\n", runtime.GOARCH)),
+			eat(f.WriteString("Depends: git\nPriority: optional\n")),
+		} {
+			if err != nil {
+				log.Fatal(err)
+			}
 		}
-		f.WriteString(fmt.Sprintf("Maintainer: %s\n", maintainer))
+
+		if flags.description != "" {
+			_, err = fmt.Fprintf(f, "Description: %s\n", flags.description)
+			if err != nil {
+				log.Fatal(err)
+			}
+		}
+		_, _ = fmt.Fprintf(f, "Maintainer: %s\n", maintainer)
 		manDir = filepath.Join(flags.packageDir, "usr", "share", "man", "man1")
 		cmd.CompletionOptions.DisableDefaultCmd = false
 		for _, shell := range []ShellType{Bash, Zsh, Fish} {
@@ -146,10 +160,14 @@ func main() {
 			log.Fatal(err)
 		}
 	}
-	err := cobradoc.GenManTree(cmd, &cobradoc.GenManHeader{}, manDir)
+	err = cobradoc.GenManTree(cmd, &cobradoc.GenManHeader{}, manDir)
 	if err != nil {
 		log.Fatal(err)
 	}
+}
+
+func eat[T any](_ T, e error) error {
+	return e
 }
 
 func fail(msg string) {
@@ -200,23 +218,6 @@ func findCompletionDir(shell ShellType) string {
 		return "/usr/share/zsh/vendor-completions"
 	case Fish:
 		return "/usr/share/fish/completions"
-	default:
-		return ""
-	}
-}
-
-func findUserCompletionDir(shell ShellType, home string) string {
-	switch shell {
-	case Bash:
-		return filepath.Join(home, "")
-	case Zsh:
-		zdot, ok := os.LookupEnv("ZDOTDIR")
-		if !ok {
-			return filepath.Join(home, "oh-my-zsh", "completions") // TODO this could be wrong
-		}
-		return filepath.Join(zdot, "oh-my-zsh", "completions")
-	case Fish:
-		return ""
 	default:
 		return ""
 	}

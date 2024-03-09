@@ -34,6 +34,9 @@ type Git struct {
 	args           []string
 	stdout, stderr io.Writer
 	stdin          io.Reader
+
+	configGlobal string
+	configSystem string
 }
 
 func (g *Git) Cmd(args ...string) *exec.Cmd {
@@ -45,6 +48,12 @@ func (g *Git) Cmd(args ...string) *exec.Cmd {
 	arguments = append(arguments, g.args...)
 	arguments = append(arguments, args...)
 	cmd := exec.Command(gitExec, arguments...)
+	if len(g.configGlobal) > 0 {
+		cmd.Env = append(cmd.Env, fmt.Sprintf("GIT_CONFIG_GLOBAL=%s", g.configGlobal))
+	}
+	if len(g.configSystem) > 0 {
+		cmd.Env = append(cmd.Env, fmt.Sprintf("GIT_CONFIG_SYSTEM=%s", g.configSystem))
+	}
 	g.setDefaultIO(cmd)
 	return cmd
 }
@@ -197,6 +206,8 @@ const (
 	ModUnknown ModType = 'X'
 )
 
+func (mt ModType) String() string { return string(mt) }
+
 // ModifiedFile is a file that has been modified
 // and has a source and destination hash.
 type ModifiedFile struct {
@@ -210,6 +221,8 @@ type ObjModification struct {
 	Hash string // sha1
 }
 
+// Modifications will list all the file modifications that are being tracked by
+// git.
 func (g *Git) Modifications() ([]*ModifiedFile, error) {
 	var buf bytes.Buffer
 	c := g.Cmd("diff-index", "HEAD")
@@ -320,6 +333,16 @@ func (g *Git) SetArgs(arguments ...string) { g.args = arguments }
 func (g *Git) SetOut(out io.Writer) { g.stdout = out }
 func (g *Git) SetErr(w io.Writer)   { g.stderr = w }
 
+func (g *Git) SetGlobalConfig(filename string) *Git {
+	g.configGlobal = filename
+	return g
+}
+
+func (g *Git) SetSystemConfig(filename string) *Git {
+	g.configSystem = filename
+	return g
+}
+
 func (g *Git) config(flags ...string) (Config, error) {
 	var (
 		buf  bytes.Buffer
@@ -347,6 +370,7 @@ func (g *Git) config(flags ...string) (Config, error) {
 	return m, nil
 }
 
+// CurrentBranch returns the name of the current branch.
 func (g *Git) CurrentBranch() (string, error) {
 	// TODO git symbolic-ref --quient HEAD
 	f, err := os.OpenFile(filepath.Join(g.gitDir, "HEAD"), os.O_RDONLY, 0644)
@@ -362,7 +386,7 @@ func (g *Git) CurrentBranch() (string, error) {
 		b = b[:len(b)-1]
 	}
 	if bytes.HasPrefix(b, []byte("ref: ")) {
-		b = bytes.Replace(b, []byte("ref: "), nil, -1)
+		b = bytes.ReplaceAll(b, []byte("ref: "), nil)
 		return filepath.Base(string(b)), nil
 	}
 	return string(b), nil

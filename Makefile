@@ -46,9 +46,11 @@ uninstall:
 	$(RM) $(BASH_COMP)/$(NAME)
 	$(RM) ~/.local/share/man/man1/dots*
 
-.PHONY: snapshot
+.PHONY: snapshot dist
 snapshot:
 	goreleaser release --skip-publish --skip-announce --auto-snapshot --rm-dist
+dist:
+	goreleaser release --clean --skip=publish --snapshot
 
 test:
 	go test -cover ./...

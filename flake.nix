@@ -6,6 +6,7 @@
   outputs = { self, nixpkgs }:
     let
       lastModifiedDate = self.lastModifiedDate or self.lastModified or "19700101";
+      # lastModifiedDate = builtins.currentTime;
       #version = builtins.substring 0 8 lastModifiedDate;
       version = "0.0.1";
       commit = if (self ? rev) then self.rev else "dirty";
@@ -26,17 +27,23 @@
             inherit version;
             src = ./.;
             ldflags = [
-              "-s" "-w"
-              "-X" "github.com/harrybrwn/dots/cli.completions=false"
-              "-X" "github.com/harrybrwn/dots/cli.Version=v${version}"
-              "-X" "github.com/harrybrwn/dots/cli.Commit=${commit}"
-              "-X" "github.com/harrybrwn/dots/cli.Hash=${commit}"
-              "-X" "github.com/harrybrwn/dots/cli.Date=${lastModifiedDate}"
+              "-s"
+              "-w"
+              "-X"
+              "github.com/harrybrwn/dots/cli.completions=false"
+              "-X"
+              "github.com/harrybrwn/dots/cli.Version=v${version}"
+              "-X"
+              "github.com/harrybrwn/dots/cli.Commit=${commit}"
+              "-X"
+              "github.com/harrybrwn/dots/cli.Hash=${commit}"
+              "-X"
+              "github.com/harrybrwn/dots/cli.Date=${lastModifiedDate}"
             ];
             #vendorSha256 = pkgs.lib.fakeSha256;
             vendorSha256 = "sha256-VQ70WpzZhpr+3XwtZykdCvN82Oe5QnxbdnDSOlKSZoc=";
             nativeBuildInputs = [ pkgs.git ];
-            doCheck = false;  # disable tests on build
+            doCheck = false; # disable tests on build
             preBuild = "go generate ./...";
           };
         });
@@ -47,7 +54,13 @@
         in
         {
           default = pkgs.mkShell {
-            buildInputs = with pkgs; [ go_1_20 gopls gotools go-tools ];
+            buildInputs = with pkgs; [
+              go_1_20
+              gopls
+              gotools
+              go-tools
+              golangci-lint
+            ];
           };
         });
 

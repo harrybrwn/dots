@@ -2,7 +2,6 @@ package tree
 
 import (
 	"bytes"
-	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -53,7 +52,10 @@ func TestNewTree(t *testing.T) {
 		t.Error("config dir should have a 'file' dir")
 	}
 	var buf bytes.Buffer
-	Print(&buf, tree)
+	err := Print(&buf, tree)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if buf.Len() == 0 {
 		t.Error("did not write tree to buffer")
 	}
@@ -103,7 +105,11 @@ func TestNewTree(t *testing.T) {
 		t.Fatal(err)
 	}
 	tree = New(nil)
-	err := nodeEq(tree, &Node{Type: LeafNode, children: map[string]*Node{}})
+	err = nodeEq(tree, &Node{
+		Type:     TreeNode,
+		Name:     rootName,
+		children: map[string]*Node{}},
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -165,6 +171,62 @@ func TestExpand(t *testing.T) {
 	}
 }
 
+func TestAnd(t *testing.T) {
+	tr := New(nil)
+	tr.Add(
+		"/path/to/file",
+		"/path/to/another/file",
+		"/path/in/a/place",
+		"/others/over/here",
+		"/others/over/there",
+		"/this/is/the/third/file/tree",
+		"/this/is/the/third/dir/tree",
+	)
+	other := New([]string{
+		"/path/to",
+		"/path/in/",
+	})
+	a := tr.and(other)
+	if a.Name != "/" {
+		t.Errorf("expected \"path\" got %q", a.Name)
+	}
+	if _, ok := a.children["path"]; !ok {
+		t.Errorf("should have key %q", "path")
+	}
+	if len(a.children) != 1 {
+		t.Error("expected only one child")
+	}
+	a = a.trimRoot(other)
+	if len(a.children) != 2 {
+		t.Error("expected 2 children")
+	}
+	if _, ok := a.children["in"]; !ok {
+		t.Errorf("expected child %q to be present", "in")
+	}
+	if _, ok := a.children["to"]; !ok {
+		t.Errorf("expected child %q to be present", "to")
+	}
+	paths := tr.ListPaths()
+	exp := []string{
+		"/others/over/here",
+		"/others/over/there",
+		"/path/in/a/place",
+		"/path/to/another/file",
+		"/path/to/file",
+		"/this/is/the/third/dir/tree",
+		"/this/is/the/third/file/tree",
+	}
+	if len(exp) != len(paths) {
+		t.Error("unexpected length of paths")
+	}
+	for i, p := range paths {
+		if p != exp[i] {
+			t.Errorf("wrong path: got %q, expected %q", p, exp[i])
+		}
+	}
+	printTree(nil, 0) // just for removing the "unused" linting error
+}
+
 func nodeEq(a, b *Node) error {
 	if a.Type != b.Type || a.Name != b.Name {
 		return fmt.Errorf("nodes have different types: %v, %v", a.Type, b.Type)
@@ -193,6 +255,9 @@ func nodeEq(a, b *Node) error {
 }
 
 func printTree(t *Node, n int) {
+	if t == nil {
+		return
+	}
 	fmt.Println(t.Name, t.Type)
 	fmt.Printf("%s ", strings.Repeat(" ", n))
 	if t.children == nil {
@@ -210,11 +275,4 @@ func contains(n *Node, key string) bool {
 	}
 	_, ok := n.children[key]
 	return ok
-}
-
-type badWriter struct{}
-
-func (*badWriter) Write([]byte) (int, error) {
-	fmt.Println("writing...")
-	return 0, errors.New("always error")
 }

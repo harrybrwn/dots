@@ -15,8 +15,8 @@ import (
 func dirs(tmp string) (gitdir, tree string) {
 	gitdir = filepath.Join(tmp, "repo")
 	tree = filepath.Join(tmp, "tree")
-	os.Mkdir(gitdir, 0755)
-	os.Mkdir(tree, 0755)
+	_ = os.Mkdir(gitdir, 0755)
+	_ = os.Mkdir(tree, 0755)
 	return
 }
 
@@ -256,11 +256,11 @@ func TestGit_PrintFileModifications(t *testing.T) {
 
 	tree := git.WorkingTree()
 	tree2 := filepath.Join(filepath.Dir(git.WorkingTree()), "tree2")
-	os.Mkdir(tree2, 0755)
+	_ = os.Mkdir(tree2, 0755)
 	git.SetWorkingTree(tree2)
 	is.NoErr(git.Cmd("checkout", "--", "one").Run())
 	git.SetWorkingTree(tree)
-	git.Cmd("--no-pager", "diff", "--name-only").Run()
+	is.NoErr(git.Cmd("--no-pager", "diff", "--name-only").Run())
 	files, err := git.Modifications()
 	is.NoErr(err)
 	is.Equal(len(files), 0) // should not have any files marked as modified

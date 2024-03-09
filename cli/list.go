@@ -8,12 +8,13 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/spf13/cobra"
+	"golang.org/x/term"
+
 	"github.com/harrybrwn/dots/cli/dotfiles"
 	"github.com/harrybrwn/dots/git"
 	"github.com/harrybrwn/dots/pkg/stdio"
 	"github.com/harrybrwn/dots/tree"
-	"github.com/spf13/cobra"
-	"golang.org/x/term"
 )
 
 type CLI interface {
@@ -38,26 +39,40 @@ func NewLSCmd(cli CLI) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			filenames := make([]string, 0, len(files))
-			if len(args) > 0 && args[0] != "." {
-				for _, f := range files {
-					if strings.HasPrefix(f, args[0]) {
-						filenames = append(
-							filenames,
-							strings.Replace(f, args[0], "", -1))
-					}
+			// filenames := make([]string, 0, len(files))
+			tr := tree.New(files)
+
+			if len(args) > 0 {
+				cwd, err := os.Getwd()
+				if err != nil {
+					return err
 				}
-			} else {
-				filenames = append(filenames, files...)
+				filter := make([]string, 0)
+				for _, arg := range args {
+					path := arg
+					if !filepath.IsAbs(path) {
+						path = filepath.Join(cwd, path)
+					}
+					rel, err := filepath.Rel(g.WorkingTree(), path)
+					if err != nil {
+						return err
+					}
+					if rel == "." {
+						continue
+					}
+					filter = append(filter, rel)
+				}
+				tr = tr.FilterBy(filter...)
 			}
+
 			if flags.flat {
-				return listFlat(cmd.OutOrStdout(), filenames, &flags)
+				return listFlat(cmd.OutOrStdout(), tr.ListPaths(), &flags)
 			}
 			mods, err := modifiedSet(g)
 			if err != nil {
 				return err
 			}
-			return listTree(cmd.OutOrStdout(), filenames, mods, &flags)
+			return listTree(cmd.OutOrStdout(), tr, mods, &flags)
 		},
 		ValidArgsFunction: lsCompletionFunc(cli),
 	}
@@ -67,8 +82,8 @@ func NewLSCmd(cli CLI) *cobra.Command {
 	return c
 }
 
-func listTree(out io.Writer, files []string, mods modSet, flags *lsFlags) error {
-	var tr = tree.New(files)
+func listTree(out io.Writer, tr *tree.Node, mods modSet, flags *lsFlags) error {
+	// var tr = tree.New(files)
 	_, height, err := term.GetSize(0)
 	if !flags.noPager && err != nil {
 		fmt.Fprintf(os.Stderr, "Could not get terminal size: %v\n", err)
@@ -99,6 +114,9 @@ func listFlat(out io.Writer, files []string, flags *lsFlags) error {
 	}
 	var buf bytes.Buffer
 	for _, f := range files {
+		if f[0] == '/' {
+			f = f[1:]
+		}
 		_, err = buf.WriteString(fmt.Sprintf("%s\n", f))
 		if err != nil {
 			return err
@@ -115,11 +133,7 @@ func listFlat(out io.Writer, files []string, flags *lsFlags) error {
 	return err
 }
 
-func lsCompletionFunc(repo dotfiles.Repo) func(
-	_ *cobra.Command,
-	_ []string,
-	_ string,
-) ([]string, cobra.ShellCompDirective) {
+func lsCompletionFunc(repo dotfiles.Repo) func(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {
 	return func(
 		_ *cobra.Command,
 		_ []string,

@@ -9,10 +9,11 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/harrybrwn/dots/cli/dotfiles"
-	"github.com/harrybrwn/dots/git"
 	"github.com/pkg/errors"
 	"github.com/spf13/cobra"
+
+	"github.com/harrybrwn/dots/cli/dotfiles"
+	"github.com/harrybrwn/dots/git"
 )
 
 const (
@@ -65,11 +66,22 @@ func (o *Options) excludesFile() string {
 	return filepath.Join(o.ConfigDir, "ignore")
 }
 
+func (o *Options) globalConfigFile() string {
+	return filepath.Join(o.ConfigDir, "gitconfig")
+}
+
 func (o *Options) applyUserTo(g interface{ AppendPersistentArgs(...string) }) {
 	g.AppendPersistentArgs(
 		"-c", fmt.Sprintf("user.name=%s", o.user),
 		"-c", fmt.Sprintf("user.email=%s", o.email),
 	)
+}
+
+func (o *Options) log() func(string, ...any) {
+	if o.verbose {
+		return func(f string, v ...any) { fmt.Printf(f+"\n", v...) }
+	}
+	return func(string, ...any) {}
 }
 
 type FlagSet interface {
@@ -275,36 +287,49 @@ func NewCloneCmd(opts *Options) *cobra.Command {
 			if !force && exists(opts.repo()) {
 				return fmt.Errorf("repository %q already exists", opts.repo())
 			}
-			// TODO after cloning run `git branch --set-upstream-to=origin/<branch> master`
-			// to set the default branch so that we can have clean git pulls.
-			//
-			// Or better yet, do this by changing .git/config to have:
-			//	[branch "master"]
-			//		remote = origin
-			//		merge = refs/heads/master
-			//
-			// This can also be made smarter by using the default branch name
-			// that is used right after cloning the repo.
-			//
-			// Also add ~/.dots and ~/.config/dots to the repo's gitignore
-			err := execute(git.Cmd("clone", "--bare", args[0], opts.repo()))
-			if err != nil {
-				return err
-			}
-			// Configure git to ignore files that are not being tracked
-			err = git.ConfigLocalSet("status.showUntrackedFiles", "no")
-			if err != nil {
-				return err
-			}
-			err = git.ConfigLocalSet("core.excludesFile", opts.excludesFile())
-			if err != nil {
-				return err
-			}
-			return writeGitignore(opts)
+			return clone(opts, git, args[0])
 		},
 	}
 	c.Flags().BoolVarP(&force, "force", "f", force, "overwrite the existing repo")
 	return c
+}
+
+func clone(opts *Options, git *git.Git, repoSource string) error {
+	// TODO after cloning run `git branch --set-upstream-to=origin/<branch> master`
+	// to set the default branch so that we can have clean git pulls.
+	//
+	// Or better yet, do this by changing .git/config to have:
+	//	[branch "master"]
+	//		remote = origin
+	//		merge = refs/heads/master
+	//
+	// This can also be made smarter by using the default branch name
+	// that is used right after cloning the repo.
+	//
+	// Also add ~/.dots and ~/.config/dots to the repo's gitignore
+	err := execute(git.Cmd("clone", "--bare", repoSource, opts.repo()))
+	if err != nil {
+		return err
+	}
+	// Configure git to ignore files that are not being tracked
+	err = git.ConfigLocalSet("status.showUntrackedFiles", "no")
+	if err != nil {
+		return err
+	}
+	err = git.ConfigLocalSet("core.excludesFile", opts.excludesFile())
+	if err != nil {
+		return err
+	}
+
+	err = writeGitignore(opts)
+	if err != nil {
+		return err
+	}
+	err = writeGlobalConfig(opts)
+	if err != nil {
+		return err
+	}
+	return nil
 }
 
 func add(opts *Options, git *git.Git, files []string) (err error) {
@@ -458,7 +483,7 @@ func writeGitignore(opts *Options) error {
 			return err
 		}
 		defer f.Close()
-		_, err = f.WriteString(fmt.Sprintf("%s\n", ignored))
+		_, err = fmt.Fprintf(f, "%s\n", ignored)
 		if err != nil {
 			return err
 		}
@@ -486,6 +511,20 @@ func writeGitignore(opts *Options) error {
 			if _, err = f.Write([]byte{'\n'}); err != nil {
 				return err
 			}
+		}
+	}
+	return nil
+}
+
+func writeGlobalConfig(opts *Options) error {
+	filename := filepath.Join(opts.ConfigDir, "gitconfig")
+	if !exists(filename) {
+		f, err := os.OpenFile(filename, os.O_CREATE|os.O_RDWR, 0644)
+		if err != nil {
+			return err
+		}
+		if err = f.Close(); err != nil {
+			return err
 		}
 	}
 	return nil

@@ -28,9 +28,11 @@ builds:
     ldflags:
       - -s
       - -w
-      - -X github.com/harrybrwn/dots/cli.completions=false
-      - "-X github.com/harrybrwn/dots/cli.Version={{.Tag}}"
-      - "-X github.com/harrybrwn/dots/cli.Commit={{.Commit}}"
+      - "-X github.com/harrybrwn/dots/cli.completions=false"
+      - "-X github.com/harrybrwn/dots/cli.Version={{ .Tag }}"
+      - "-X github.com/harrybrwn/dots/cli.Commit={{ .Commit }}"
+      - "-X github.com/harrybrwn/dots/cli.Date={{ .Date }}"
+      - "-X github.com/harrybrwn/dots/cli.Hash={{ .Commit }}"
 
 nfpms:
   - file_name_template: "{{ .ConventionalFileName }}"

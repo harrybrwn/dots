@@ -28,22 +28,72 @@ const rootName = "/"
 
 // New will create a new tree from a list of files
 func New(files []string) *Node {
-	if len(files) == 0 {
-		return &Node{
-			Type:     LeafNode,
-			children: make(map[string]*Node),
-		}
-	}
 	tree := &Node{
-		Name:     rootName,
 		Type:     TreeNode,
+		Name:     rootName,
 		children: make(map[string]*Node),
 	}
-	for _, f := range files {
-		parts := fileSplit(f)
-		expand(parts, tree)
+	if len(files) > 0 {
+		tree.addPaths(files)
 	}
 	return tree
+}
+
+func (n *Node) Add(paths ...string) {
+	n.addPaths(paths)
+}
+
+func (n *Node) FilterBy(paths ...string) *Node {
+	if len(paths) == 0 {
+		return n
+	}
+	other := New(paths)
+	return n.and(other).trimRoot(other)
+}
+
+// TrimSingleRoot will walk down the tree removing nodes as long as each node
+// only has one child.
+func (n *Node) TrimSingleRoot() *Node {
+	for len(n.children) == 1 && n.Type != LeafNode {
+		for _, child := range n.children {
+			*n = *child
+		}
+	}
+	return n
+}
+
+func (n *Node) TrimSingleRootUntil(base string) *Node {
+	for len(n.children) == 1 && n.Type != LeafNode {
+		for _, child := range n.children {
+			*n = *child
+			if child.Name == base {
+				return n
+			}
+		}
+	}
+	return n
+}
+
+func (n *Node) ListPaths() []string {
+	paths := make([]string, 0)
+	traverse(n, func(node *Node) {
+		if node.Type == LeafNode {
+			p := append(node.path, node.Name)
+			paths = append(paths, filepath.Join(p...))
+		}
+	})
+	return paths
+}
+
+func (n *Node) addPaths(paths []string) {
+	for _, p := range paths {
+		n.addPath(p)
+	}
+}
+
+func (n *Node) addPath(p string) {
+	parts := fileSplit(p)
+	expand(parts, n)
 }
 
 // Print will write a string representation of the tree to an io.Writer
@@ -59,7 +109,7 @@ func PrintColor(w io.Writer, t *Node, prehook func(*Node) string) error {
 
 // PrintHeight will return the height of the output if Print is called.
 func PrintHeight(tree *Node) int {
-	var n int = 1
+	var n = 1
 	if len(tree.children) == 0 {
 		return n
 	}
@@ -137,8 +187,15 @@ func (p *printer) walk(t *Node, prefix string) error {
 }
 
 func (p *printer) writef(format string, v ...interface{}) error {
-	_, err := p.w.Write([]byte(fmt.Sprintf(format, v...)))
+	_, err := fmt.Fprintf(p.w, format, v...)
 	return err
+}
+
+func traverse(node *Node, fn func(node *Node)) {
+	fn(node)
+	for _, child := range node.getChildren() {
+		traverse(child, fn)
+	}
 }
 
 func count(root *Node) int {
@@ -179,6 +236,57 @@ func (n *Node) insertChild(child *Node) {
 		n.children = make(map[string]*Node)
 	}
 	n.children[child.Name] = child
+}
+
+func (n *Node) and(other *Node) *Node {
+	res := Node{
+		Type:     n.Type,
+		Name:     n.Name,
+		children: make(map[string]*Node),
+	}
+	for name, child := range other.children {
+		orig, ok := n.children[name]
+		if !ok {
+			continue
+		}
+		switch child.Type {
+		case TreeNode:
+			res.children[name] = orig.and(child)
+		case LeafNode:
+			var cp Node
+			deepCopy(&cp, orig)
+			res.children[name] = &cp
+		}
+	}
+	return &res
+}
+
+func (n *Node) trimRoot(other *Node) *Node {
+	if len(n.children) == 1 {
+		for name, child := range other.children {
+			orig, ok := n.children[name]
+			if !ok {
+				continue
+			}
+			n = orig.trimRoot(child)
+			break
+		}
+	}
+	return n
+}
+
+func deepCopy(dst, n *Node) {
+	dst.Type = n.Type
+	dst.Name = n.Name
+	dst.path = append(dst.path, n.path...)
+	if n.children != nil {
+		dst.children = make(map[string]*Node, len(n.children))
+		for k, v := range n.children {
+			var c Node
+			deepCopy(&c, v)
+			dst.children[k] = &c
+		}
+	}
 }
 
 type nodelist []*Node

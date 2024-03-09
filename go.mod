@@ -1,6 +1,6 @@
 module github.com/harrybrwn/dots
 
-go 1.17
+go 1.22
 
 require (
 	github.com/matryer/is v1.4.0

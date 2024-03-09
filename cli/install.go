@@ -2,14 +2,16 @@ package cli
 
 import (
 	"archive/tar"
+	"container/list"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 
-	"github.com/harrybrwn/dots/git"
 	"github.com/pkg/errors"
 	"github.com/spf13/cobra"
+
+	"github.com/harrybrwn/dots/git"
 )
 
 func NewInstallCmd(opts *Options) *cobra.Command {
@@ -18,13 +20,27 @@ func NewInstallCmd(opts *Options) *cobra.Command {
 		to  string
 	)
 	c := &cobra.Command{
-		Use:   "install",
-		Short: "Copy all of the tracked files to the current root (will overwrite existing files)",
-		RunE: func(cmd *cobra.Command, args []string) error {
+		Use:   "install [source]",
+		Short: "Copy all of the tracked files to the current root",
+		Long: `
+Copy all of the tracked files to the current root (will overwrite existing
+files). Also optionally clone from a remove source before installing.
+`,
+		Aliases: []string{"i"},
+		RunE: func(cmd *cobra.Command, args []string) (err error) {
 			var (
 				git = opts.Git()
 				c   = git.Cmd("archive", "--format=tar", "HEAD")
 			)
+			if len(args) > 0 {
+				if git.Exists() {
+					return errors.New("git repository already exists here")
+				}
+				err := clone(opts, git, args[0])
+				if err != nil {
+					return err
+				}
+			}
 			pipe, err := c.StdoutPipe()
 			if err != nil {
 				return err
@@ -37,31 +53,36 @@ func NewInstallCmd(opts *Options) *cobra.Command {
 			if len(to) > 0 {
 				dest = to
 			}
-			cmd.Printf("installing to %q\n", dest)
-			err = install(dest, opts, git, tar.NewReader(pipe), yes)
-			if err != nil {
-				return err
-			}
-			err = c.Wait()
-			if err != nil {
-				return err
-			}
-			err = git.RunCmd("restore", "--staged", opts.Root)
-			if err != nil {
-				return err
-			}
 
-			if opts.HasReadme() {
-				err = restoreReadMe(git)
-				if err != nil {
-					return errors.Wrap(err, "failed to restore repo's base README.md")
+			defer func() {
+				e := c.Wait()
+				if e != nil && err == nil {
+					err = e
+					return
 				}
-			}
-			err = git.RunCmd("update-index", "--refresh")
+				e = git.RunCmd("restore", "--staged", opts.Root)
+				if e != nil && err == nil {
+					err = e
+					return
+				}
+				if opts.HasReadme() {
+					e = restoreReadMe(git)
+					if e != nil && err == nil {
+						err = errors.Wrap(e, "failed to restore repo's base README.md")
+						return
+					}
+				}
+				e = git.RunCmd("update-index", "--refresh")
+				if e != nil && err == nil {
+					err = errors.Wrap(err, "failed to refresh index")
+				}
+			}()
+			cmd.Printf("installing to %q\n", dest)
+			err = install(opts, dest, tar.NewReader(pipe), yes)
 			if err != nil {
-				return errors.Wrap(err, "failed to refresh index")
+				return err
 			}
-			return nil
+			return
 		},
 	}
 	f := c.Flags()
@@ -70,23 +91,27 @@ func NewInstallCmd(opts *Options) *cobra.Command {
 	return c
 }
 
-func install(dest string, opts *Options, git *git.Git, archive *tar.Reader, yes bool) error {
+type link struct {
+	sym bool
+	dst string
+	src string
+}
+
+func install(opts *Options, dest string, archive *tar.Reader, yes bool) error {
+	symlinks := list.New()
+	log := opts.log()
 	for {
 		header, err := archive.Next()
 		switch err {
 		case nil:
 		case io.EOF:
-			return nil
+			goto finish
 		default:
 			return errors.Wrap(err, "could not get next tar header")
 		}
 		p := filepath.Join(dest, header.Name)
 		if rel, err := filepath.Rel(opts.Root, p); err == nil && rel == ReadMeName {
 			p = filepath.Join(opts.ConfigDir, ReadMeName)
-		}
-		log := func(string, ...interface{}) {}
-		if opts.verbose {
-			log = func(f string, v ...interface{}) { fmt.Printf(f+"\n", v...) }
 		}
 		if !yes && exists(p) {
 			if !yesOrNo(
@@ -109,7 +134,7 @@ func install(dest string, opts *Options, git *git.Git, archive *tar.Reader, yes 
 			}
 			log("created directory %q", p)
 		case tar.TypeReg:
-			f, err := os.OpenFile(p, os.O_CREATE|os.O_WRONLY, perm)
+			f, err := os.OpenFile(p, os.O_TRUNC|os.O_CREATE|os.O_WRONLY, perm)
 			if err != nil {
 				return err
 			}
@@ -123,23 +148,48 @@ func install(dest string, opts *Options, git *git.Git, archive *tar.Reader, yes 
 			}
 			log("wrote file %q", p)
 		case tar.TypeSymlink:
-			err = os.Symlink(p, filepath.Join(dest, header.Linkname))
-			if err != nil {
-				return errors.Wrap(err, "could not create symbolic link")
+			l := link{
+				sym: true,
+				src: p,
+				dst: header.Linkname,
 			}
-			log("created symlink %q", p)
+			symlinks.PushBack(l)
 		case tar.TypeLink:
-			err = os.Link(p, filepath.Join(dest, header.Linkname))
-			if err != nil {
-				return err
+			l := link{
+				src: p,
+				dst: header.Linkname,
 			}
-			log("created link %q", p)
+			symlinks.PushBack(l)
 		case tar.TypeBlock:
 			return errors.New("cannot handle file type 'block'")
 		case tar.TypeFifo:
 			return errors.New("cannot handle file type 'fifo'")
 		}
 	}
+
+finish:
+	var err error
+	for symlinks.Len() > 0 {
+		l := symlinks.Remove(symlinks.Front()).(link)
+		base, lnname := filepath.Split(l.src)
+		ln, msg := os.Link, "link"
+		if l.sym {
+			ln = os.Symlink
+			msg = "symlink"
+		}
+		e := changeDir(base, func() error {
+			return ln(l.dst, lnname)
+		})
+		if e != nil {
+			if err == nil {
+				err = errors.Wrap(e, "could not create symbolic link")
+			}
+			fmt.Fprintf(os.Stderr, "error: failed to create %s %q -> %q\n", msg, l.src, l.dst)
+			continue
+		}
+		log("created %s %q -> %q", msg, l.src, l.dst)
+	}
+	return err
 }
 
 func restoreReadMe(g *git.Git) error {
@@ -155,6 +205,29 @@ func restoreReadMe(g *git.Git) error {
 			}
 			break
 		}
+	}
+	return nil
+}
+
+func changeDir(dst string, fn func() error) (err error) {
+	var prev string
+	prev, err = os.Getwd()
+	if err != nil {
+		return err
+	}
+	err = os.Chdir(dst)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		e := os.Chdir(prev)
+		if e != nil && err == nil {
+			err = e
+		}
+	}()
+	err = fn()
+	if err != nil {
+		return err
 	}
 	return nil
 }

@@ -77,6 +77,6 @@ func objectHash(typ ObjectType, size int64, r io.Reader) string {
 	h.Write([]byte{' '})
 	h.Write([]byte(strconv.FormatInt(size, 10)))
 	h.Write([]byte{0})
-	io.Copy(h, r)
+	_, _ = io.Copy(h, r)
 	return hex.EncodeToString(h.Sum(nil))
 }

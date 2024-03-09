@@ -11,8 +11,9 @@ import (
 	"text/tabwriter"
 	_ "unsafe"
 
-	"github.com/harrybrwn/dots/git"
 	"github.com/spf13/cobra"
+
+	"github.com/harrybrwn/dots/git"
 )
 
 func NewUtilCmd(opts *Options) *cobra.Command {
@@ -33,8 +34,9 @@ func NewUtilCmd(opts *Options) *cobra.Command {
 
 func NewSetSSHKeyCmd(opts *Options) *cobra.Command {
 	return &cobra.Command{
-		Use: "set-ssh-key <file>", Args: cobra.ExactArgs(1),
+		Use:   "set-ssh-key <file>",
 		Short: "Set an ssh identity file to be used on every remote operation.",
+		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return opts.git().ConfigLocalSet(
 				"core.sshcommand",
@@ -80,7 +82,7 @@ func NewGetCmd(opts *Options) *cobra.Command {
 			// This is a quick hack to undo that immediately after printing out
 			// the file. This will ideally happen silently.
 			git.SetWorkingTree(originTree)
-			git.Cmd("--no-pager", "diff", "--name-only").Run()
+			_ = git.Cmd("--no-pager", "diff", "--name-only").Run()
 			return nil
 		},
 		ValidArgsFunction: filesCompletionFunc(opts),
@@ -94,17 +96,21 @@ func NewGetCmd(opts *Options) *cobra.Command {
 
 func NewCatCmd(opts *Options) *cobra.Command {
 	c := &cobra.Command{
-		Use:               "cat <filename>",
+		Use:               "cat <filenames...>",
 		Short:             "Print a file being tracked to standard out.",
-		Args:              cobra.ExactArgs(1),
+		Args:              cobra.MinimumNArgs(1),
 		ValidArgsFunction: filesCompletionFunc(opts),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			git := opts.git()
-			name := args[0]
-			if name[0] == '/' {
-				name = name[1:]
+			command := []string{"--no-pager", "show"}
+			for _, arg := range args {
+				name := arg
+				if name[0] == '/' {
+					name = name[1:]
+				}
+				command = append(command, fmt.Sprintf("HEAD:%s", name))
 			}
-			c := git.Cmd("--no-pager", "show", fmt.Sprintf("HEAD:%s", name))
+			c := git.Cmd(command...)
 			c.Stdout = cmd.OutOrStdout()
 			return execute(c)
 		},
@@ -135,11 +141,10 @@ func newUtilCommands(opts *Options) []*cobra.Command {
 				if len(mods) == 0 {
 					return nil
 				}
-				tab := tabwriter.NewWriter(cmd.OutOrStdout(), 3, 4, 1, ' ', 0)
-				tab.Write([]byte("SOURCE\tDEST\tTYPE\tNAME\n"))
+				tab := NewTable(cmd.OutOrStdout())
+				tab.Head("SOURCE", "DEST", "TYPE", "NAME")
 				for _, m := range mods {
-					s := fmt.Sprintf("%s\t%s\t%c\t%s\n", m.Src.Hash, m.Dst.Hash, m.Type, m.Name)
-					tab.Write([]byte(s))
+					tab.Add(m.Src.Hash, m.Dst.Hash, m.Type.String(), m.Name)
 				}
 				return tab.Flush()
 			},
@@ -246,13 +251,15 @@ type Table struct {
 func (t *Table) Head(header ...string) { t.Header = append(t.Header, header...) }
 func (t *Table) Add(body ...string)    { t.Body = append(t.Body, body) }
 
-func (t *Table) Flush() error {
-	_, err := t.tab.Write([]byte(fmt.Sprintf("%s\n", strings.Join(t.Header, "\t"))))
-	if err != nil {
-		return err
+func (t *Table) Flush() (err error) {
+	if len(t.Header) > 0 {
+		_, err = fmt.Fprintf(t.tab, "%s\n", strings.Join(t.Header, "\t"))
+		if err != nil {
+			return err
+		}
 	}
 	for _, row := range t.Body {
-		_, err = t.tab.Write([]byte(fmt.Sprintf("%s\n", strings.Join(row, "\t"))))
+		_, err = fmt.Fprintf(t.tab, "%s\n", strings.Join(row, "\t"))
 		if err != nil {
 			return err
 		}
@@ -262,21 +269,6 @@ func (t *Table) Flush() error {
 
 //go:linkname execute github.com/harrybrwn/dots/git.run
 func execute(cmd *exec.Cmd) error
-
-// func execute(cmd *exec.Cmd) error {
-// 	var stderr bytes.Buffer
-// 	cmd.Stderr = &stderr
-// 	fmt.Println(cmd.Args)
-// 	err := cmd.Run()
-// 	if err != nil {
-// 		msg := strings.Trim(stderr.String(), "\n")
-// 		if len(msg) == 0 {
-// 			return err
-// 		}
-// 		return fmt.Errorf("%s: %w", msg, err)
-// 	}
-// 	return nil
-// }
 
 func remove(index int, arr []string) []string {
 	l := len(arr) - 1

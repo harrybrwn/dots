@@ -27,7 +27,7 @@ func Page(pager string, out io.Writer, in io.Reader) error {
 	}
 	go func() {
 		defer pagerIn.Close()
-		io.Copy(pagerIn, in)
+		_, _ = io.Copy(pagerIn, in)
 	}()
 	err = cmd.Run()
 	if err != nil {
