@@ -571,7 +571,11 @@ func meta(t *testing.T) *testmeta {
 	g := New(gitdir, worktree)
 	g.SetOut(io.Discard)
 	g.SetErr(io.Discard)
-	g.SetPersistentArgs([]string{"-c", "commit.gpgsign=false"})
+	g.SetPersistentArgs([]string{
+		"-c", "commit.gpgsign=false",
+		"-c", "user.email=dots@example.com",
+		"-c", "user.name=DotsTests",
+	})
 	return &testmeta{tmp: tmp, git: g, t: t}
 }
 
@@ -585,7 +589,11 @@ func testgit(t *testing.T) *Git {
 	git := New(gd, tr)
 	git.SetOut(io.Discard)
 	git.SetErr(io.Discard)
-	git.SetPersistentArgs([]string{"-c", "commit.gpgsign=false"})
+	git.SetPersistentArgs([]string{
+		"-c", "commit.gpgsign=false",
+		"-c", "user.email=dots@example.com",
+		"-c", "user.name=DotsTests",
+	})
 	return git
 }
 

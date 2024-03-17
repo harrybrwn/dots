@@ -55,11 +55,14 @@ dist:
 test:
 	go test -cover ./...
 
+lint:
+	golangci-lint run --disable unused
+
 PKG=release/$(NAME)-$(VERSION)-$(ARCH)
 
 package: $(PKG).deb
 
-.PHONY: build clean gen completion man install uninstall package
+.PHONY: build test lint clean gen completion man install uninstall package
 
 # This is not really a lock file, its just a file that is created whenever we
 # build the docker image an is used as a makefile depenancy for the docker

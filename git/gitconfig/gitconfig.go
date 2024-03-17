@@ -385,13 +385,10 @@ func (cf *configParser) parseValue() (string, error) {
 				continue
 			case 't':
 				c = '\t'
-				break
 			case 'b':
 				c = '\b'
-				break
 			case 'n':
 				c = '\n'
-				break
 			/* Some characters escape as themselves */
 			case '\\':
 				break

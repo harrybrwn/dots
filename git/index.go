@@ -190,7 +190,6 @@ type indexCacheEntry struct {
 	index   uint
 	oid     []byte
 	name    string
-	ent     map[any]any
 }
 
 type indexOnDiskCacheEntry struct {
