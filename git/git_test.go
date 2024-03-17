@@ -167,12 +167,7 @@ func TestGit_Config(t *testing.T) {
 
 func TestGit_LsTree(t *testing.T) {
 	is := is.New(t)
-	tmp := t.TempDir()
-	gd, tr := dirs(tmp)
-	git := New(gd, tr)
-	git.SetOut(io.Discard)
-	git.SetErr(io.Discard)
-	git.SetPersistentArgs([]string{"-c", "commit.gpgsign=false"})
+	git := testgit(t)
 	is.NoErr(git.InitBare())
 	path := filepath.Join(git.WorkingTree(), "file.txt")
 	is.NoErr(touch(path))
