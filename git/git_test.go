@@ -182,9 +182,6 @@ func TestGit_ModifiedFiles(t *testing.T) {
 	is := is.New(t)
 	m := meta(t)
 	g := m.Git()
-	g.SetOut(io.Discard)
-	g.SetErr(io.Discard)
-	g.SetPersistentArgs([]string{"-c", "commit.gpgsign=false"})
 	err := setupTestRepo(
 		g,
 		newfile("test.txt", "this is a test"),
