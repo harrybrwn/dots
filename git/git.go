@@ -3,8 +3,12 @@ package git
 import (
 	"bufio"
 	"bytes"
+	"compress/zlib"
+	"crypto/sha1"
+	"encoding/hex"
 	"errors"
 	"fmt"
+	"hash"
 	"io"
 	"os"
 	"os/exec"
@@ -40,14 +44,7 @@ type Git struct {
 }
 
 func (g *Git) Cmd(args ...string) *exec.Cmd {
-	arguments := make([]string, 4, 4+len(args)+len(g.args))
-	arguments[0] = "--git-dir"
-	arguments[1] = g.gitDir
-	arguments[2] = "--work-tree"
-	arguments[3] = g.workTree
-	arguments = append(arguments, g.args...)
-	arguments = append(arguments, args...)
-	cmd := exec.Command(gitExec, arguments...)
+	cmd := g.newCmd(args)
 	if len(g.configGlobal) > 0 {
 		cmd.Env = append(cmd.Env, fmt.Sprintf("GIT_CONFIG_GLOBAL=%s", g.configGlobal))
 	}
@@ -56,6 +53,17 @@ func (g *Git) Cmd(args ...string) *exec.Cmd {
 	}
 	g.setDefaultIO(cmd)
 	return cmd
+}
+
+func (g *Git) newCmd(args []string) *exec.Cmd {
+	arguments := make([]string, 4, 4+len(args)+len(g.args))
+	arguments[0] = "--git-dir"
+	arguments[1] = g.gitDir
+	arguments[2] = "--work-tree"
+	arguments[3] = g.workTree
+	arguments = append(arguments, g.args...)
+	arguments = append(arguments, args...)
+	return exec.Command(gitExec, arguments...)
 }
 
 func (g *Git) RunCmd(args ...string) error { return run(g.Cmd(args...)) }
@@ -108,6 +116,10 @@ func (g *Git) Commit(message string) error {
 	return run(g.Cmd("commit", "-m", message))
 }
 
+func (g *Git) CommitAllowEmpty(message string) error {
+	return run(g.Cmd("commit", "-m", message, "--allow-empty"))
+}
+
 func (g *Git) LsFiles() ([]string, error) {
 	var (
 		buf bytes.Buffer
@@ -134,7 +146,7 @@ func (g *Git) ModifiedFiles() ([]string, error) {
 	return lines(buf.String()), nil
 }
 
-func (g *Git) Files() ([]*Object, error) {
+func (g *Git) Files() ([]*FileObject, error) {
 	var (
 		buf bytes.Buffer
 		c   = g.Cmd("ls-tree", "HEAD", "-r", "-t", "--long", "--full-tree")
@@ -148,12 +160,12 @@ func (g *Git) Files() ([]*Object, error) {
 		i, j   int
 		fields [4]string
 		sc     = bufio.NewScanner(&buf)
-		files  = make([]*Object, 0)
+		files  = make([]*FileObject, 0)
 	)
 	for sc.Scan() {
 		var (
 			line = sc.Text()
-			f    Object
+			f    FileObject
 		)
 		i = strings.IndexByte(line, '\t')
 		f.Name = line[i+1:]
@@ -218,7 +230,7 @@ type ModifiedFile struct {
 
 type ObjModification struct {
 	Mode int    // file mode
-	Hash string // sha1
+	Hash string // sha1 as hex
 }
 
 // Modifications will list all the file modifications that are being tracked by
@@ -276,6 +288,20 @@ func (g *Git) ModifiedSet() (map[string]*ModifiedFile, error) {
 	return set, nil
 }
 
+func (g *Git) Head() (Ref, error) {
+	return readRef(filepath.Join(g.gitDir, "HEAD"))
+}
+
+func (g *Git) HeadCommitHash() (Ref, error) {
+	ref, err := g.Head()
+	if err != nil {
+		return "", err
+	}
+	return ref.fullFollow(g)
+}
+
+func (g *Git) FollowRef(ref Ref) (Ref, error) { return ref.Follow(g) }
+
 func parseMode(s string) (int, error) {
 	m, err := strconv.ParseUint(s, 8, 64)
 	if err != nil {
@@ -297,7 +323,132 @@ func (g *Git) HasRemote() bool {
 	return b.Len() > 0
 }
 
-type Config map[string]interface{}
+func (g *Git) objectFilename(hash string) string {
+	return objectFilename(g.gitDir, hash)
+}
+
+func objectFilename(gitDir, hash string) string {
+	return filepath.Join(
+		gitDir,
+		"objects",
+		hash[:2],
+		hash[2:],
+	)
+}
+
+func (g *Git) OpenObject(ref Ref) (*Object, error) {
+	ref, err := ref.fullFollow(g)
+	if err != nil {
+		return nil, err
+	}
+	r := string(ref)
+	filename := g.objectFilename(r)
+	f, err := os.Open(filename)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	rc, err := zlib.NewReader(f)
+	if err != nil {
+		return nil, err
+	}
+	defer rc.Close()
+	var obj Object
+	err = parseObject(rc, &obj)
+	if err != nil {
+		return nil, err
+	}
+	obj.Hash = r
+	return &obj, nil
+}
+
+func (g *Git) WriteObject(o *Object) error {
+	var (
+		buf  bytes.Buffer
+		hash string
+	)
+	if len(o.Hash) > 0 {
+		hash = o.Hash
+		_, err := o.writeTo(&buf)
+		if err != nil {
+			return err
+		}
+	} else {
+		h := sha1.New()
+		_, err := o.writeTo(&hashWriter{w: &buf, hash: h})
+		if err != nil {
+			return err
+		}
+		hash = hex.EncodeToString(h.Sum(nil))
+	}
+	f, err := os.OpenFile(
+		g.objectFilename(hash),
+		os.O_CREATE|os.O_WRONLY,
+		0644,
+	)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	_, err = io.Copy(f, &buf)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func (g *Git) HeadCommit() (*Commit, error) {
+	ref, err := g.HeadCommitHash()
+	if err != nil {
+		return nil, err
+	}
+	obj, err := g.OpenObject(ref)
+	if err != nil {
+		return nil, err
+	}
+	if obj.Type != ObjCommit {
+		return nil, errors.New("object at HEAD is not a commit object")
+	}
+	var cm Commit
+	err = parseCommit(bufio.NewReader(bytes.NewReader(obj.Data)), &cm)
+	if err != nil {
+		return nil, err
+	}
+	return &cm, nil
+}
+
+func (g *Git) OpenCommit(ref Ref) (*Commit, error) {
+	obj, err := g.OpenObject(ref)
+	if err != nil {
+		return nil, err
+	}
+	if obj.Type != ObjCommit {
+		return nil, errors.New("object is not a commit object")
+	}
+	var cm Commit
+	err = parseCommit(bufio.NewReader(bytes.NewReader(obj.Data)), &cm)
+	if err != nil {
+		return nil, err
+	}
+	return &cm, nil
+}
+
+func (g *Git) CommitTree(commit *Commit) ([]TreeEntry, error) {
+	obj, err := g.OpenObject(NewHashRef(commit.Tree))
+	if err != nil {
+		return nil, err
+	}
+	if obj.Type != ObjTree {
+		return nil, errors.New("commit tree is not a tree object")
+	}
+	return parseTree(obj.Data)
+}
+
+func (g Git) CommitParent(commit *Commit) (*Commit, error) {
+	return g.OpenCommit(NewHashRef(commit.Parent))
+}
+
+type Config map[string]any
 
 func (c Config) Exists(key string) bool {
 	_, ok := c[key]
@@ -341,6 +492,24 @@ func (g *Git) SetGlobalConfig(filename string) *Git {
 func (g *Git) SetSystemConfig(filename string) *Git {
 	g.configSystem = filename
 	return g
+}
+
+func (g *Git) FileCount() (int, error) {
+	f, err := os.Open(g.indexFile())
+	if err != nil {
+		return 0, err
+	}
+	defer f.Close()
+	raw, err := io.ReadAll(f)
+	if err != nil {
+		return 0, err
+	}
+	var hdr indexCacheHeader
+	err = hdr.UnmarshalBinary(raw[:12])
+	if err != nil {
+		return 0, err
+	}
+	return int(hdr.entries), nil
 }
 
 func (g *Git) config(flags ...string) (Config, error) {
@@ -392,6 +561,10 @@ func (g *Git) CurrentBranch() (string, error) {
 	return string(b), nil
 }
 
+func (g *Git) indexFile() string {
+	return filepath.Join(g.gitDir, "index")
+}
+
 func lines(s string) []string {
 	sp := strings.Split(s, "\n")
 	lines := make([]string, 0, len(sp))
@@ -438,17 +611,23 @@ func initBareRepo(path string) error {
 			return err
 		}
 	}
-	err = writeToFile(filepath.Join(path, "description"), "Unnamed repository; edit this file 'description' to name the repository.\n")
+	err = writeToFile(
+		filepath.Join(path, "description"),
+		"Unnamed repository; edit this file 'description' to name the repository.\n",
+	)
 	if err != nil {
 		return err
 	}
-	err = writeToFile(filepath.Join(path, "info", "exclude"), `# git ls-files --others --exclude-from=.git/info/exclude
+	err = writeToFile(
+		filepath.Join(path, "info", "exclude"),
+		`# git ls-files --others --exclude-from=.git/info/exclude
 # Lines that start with '#' are comments.
 # For a project mostly in C, the following would be a good set of
 # exclude patterns (uncomment them if you want to use them):
 # *.[oa]
 # *~
-`)
+`,
+	)
 	if err != nil {
 		return err
 	}
@@ -494,4 +673,21 @@ func run(cmd *exec.Cmd) error {
 		return fmt.Errorf("%s: %w", msg, err)
 	}
 	return nil
+}
+
+type hashWriter struct {
+	w    io.Writer
+	hash hash.Hash
+}
+
+func (hw *hashWriter) Write(b []byte) (int, error) {
+	n, err := hw.w.Write(b)
+	hashed, e := hw.hash.Write(b[:n])
+	if err != nil {
+		return n, e
+	}
+	if n != hashed {
+		return n, io.ErrShortWrite
+	}
+	return n, err
 }
