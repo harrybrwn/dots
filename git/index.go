@@ -62,20 +62,6 @@ func (ix *index) indexDiff(workingTree string) ([]*ModifiedFile, error) {
 			}
 		}
 
-		// fmt.Printf("%[1]T %[1]v\n", info.Sys())
-
-		// fmt.Printf(
-		// 	"%s %o %o\n",
-		// 	info.Name(),
-		// 	info.Mode().Perm(),
-		// 	entry.mode.Perm(),
-		// 	// info.Size() != int64(entry.statData.size),
-		// )
-		// fmt.Println(!info.ModTime().Equal(entry.statData.mtime.Time()),
-		// 	info.Size() != int64(entry.statData.size),
-		// 	info.Mode().Perm() != entry.mode.Perm(),
-		// )
-
 		if !info.ModTime().Equal(entry.statData.mtime.Time()) ||
 			info.Size() != int64(entry.statData.size) ||
 			info.Mode().Perm() != entry.mode.Perm() {
@@ -83,16 +69,10 @@ func (ix *index) indexDiff(workingTree string) ([]*ModifiedFile, error) {
 		} else {
 			switch sys := info.Sys().(type) {
 			case *syscall.Stat_t:
-				fmt.Println(
-					sys.Dev != uint64(entry.statData.dev),
-					sys.Uid != entry.statData.uid,
-					sys.Gid != entry.statData.gid,
-					sys.Ino != uint64(entry.statData.ino),
-				)
-				if sys.Dev != uint64(entry.statData.dev) ||
+				if uint64(sys.Dev) != uint64(entry.statData.dev) ||
 					sys.Uid != entry.statData.uid ||
 					sys.Gid != entry.statData.gid ||
-					sys.Ino != uint64(entry.statData.ino) {
+					uint64(sys.Ino) != uint64(entry.statData.ino) {
 					mod.Type = ModChanged
 				} else {
 					continue
