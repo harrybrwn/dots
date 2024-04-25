@@ -24,22 +24,35 @@ type CLI interface {
 
 type lsFlags struct {
 	CLI
-	flat    bool
-	noPager bool
+	flat      bool
+	noPager   bool
+	untracked bool
 }
 
-func NewLSCmd(cli CLI) *cobra.Command {
+func NewLSCmd(cli *Options) *cobra.Command {
 	flags := lsFlags{CLI: cli}
 	c := &cobra.Command{
 		Use:   "ls",
 		Short: "List the files being tracked",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			g := cli.Git()
+			if flags.untracked {
+				dir := "."
+				if len(args) > 0 {
+					dir = args[0]
+				}
+				return untracked(
+					cmd.OutOrStdout(),
+					g,
+					filepath.Join(cli.ConfigDir, "ignore"),
+					&flags,
+					dir,
+				)
+			}
 			files, err := g.LsFiles()
 			if err != nil {
 				return err
 			}
-			// filenames := make([]string, 0, len(files))
 			tr := tree.New(files)
 
 			if len(args) > 0 {
@@ -79,11 +92,11 @@ func NewLSCmd(cli CLI) *cobra.Command {
 	f := c.Flags()
 	f.BoolVar(&flags.flat, "flat", flags.flat, "print as flat list")
 	f.BoolVar(&flags.noPager, "no-pager", flags.noPager, "disable the automatic pager")
+	f.BoolVarP(&flags.untracked, "untracked", "u", flags.untracked, "show only untracked files")
 	return c
 }
 
 func listTree(out io.Writer, tr *tree.Node, mods modSet, flags *lsFlags) error {
-	// var tr = tree.New(files)
 	_, height, err := term.GetSize(0)
 	if !flags.noPager && err != nil {
 		fmt.Fprintf(os.Stderr, "Could not get terminal size: %v\n", err)
@@ -133,7 +146,68 @@ func listFlat(out io.Writer, files []string, flags *lsFlags) error {
 	return err
 }
 
-func lsCompletionFunc(repo dotfiles.Repo) func(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {
+func untracked(
+	out io.Writer,
+	g *git.Git,
+	excludeFile string,
+	flags *lsFlags,
+	dir string,
+) (err error) {
+	tr := tree.New(nil)
+	cwd, err := filepath.Abs(dir)
+	if err != nil {
+		return err
+	}
+	var b bytes.Buffer
+	cmd := g.Cmd(
+		"-c", "status.showuntrackedfiles=yes",
+		"ls-files", "-zo",
+		"--exclude-standard",
+		fmt.Sprintf("--exclude-from=%s", excludeFile),
+		"--",
+		cwd,
+	)
+	cmd.Stdout = &b
+	cmd.Stderr = &b
+	if err := cmd.Run(); err != nil {
+		return err
+	}
+	files := strings.Split(b.String(), "\x00")
+	for _, f := range files {
+		if len(f) == 0 {
+			continue
+		}
+		tr.Add(f)
+	}
+	var (
+		buf   bytes.Buffer
+		pager = stdio.FindPager()
+	)
+	_, height, err := term.GetSize(0)
+	if err != nil {
+		return err
+	}
+	if pager == "" {
+		flags.noPager = true
+	}
+	if err = tree.PrintColor(&buf, tr, func(n *tree.Node) string {
+		if n.Type == tree.TreeNode {
+			return tree.DirColor(n)
+		}
+		return "\x1b[01;32mU\x1b[0m "
+	}); err != nil {
+		return err
+	}
+	if !flags.noPager && tree.PrintHeight(tr) > height {
+		return stdio.Page(pager, out, &buf)
+	}
+	_, err = io.Copy(out, &buf)
+	return err
+}
+
+func lsCompletionFunc(
+	repo dotfiles.Repo,
+) func(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {
 	return func(
 		_ *cobra.Command,
 		_ []string,

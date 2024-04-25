@@ -128,6 +128,14 @@ func ColorFolders(n *Node) string {
 
 func NoColor(*Node) string { return "" }
 
+// DirColor will return a terminal blue if the node is a tree node.
+func DirColor(n *Node) string {
+	if n.Type == TreeNode {
+		return "\x1b[01;34m"
+	}
+	return ""
+}
+
 func expand(parts []string, tree *Node) {
 	if tree == nil || len(parts) == 0 {
 		return

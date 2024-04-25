@@ -131,6 +131,7 @@ git repo so that you don't have too.`,
 		NewStatusCmd(&opts),
 		NewInstallCmd(&opts),
 		NewUninstallCmd(&opts),
+		NewDiffCmd(&opts),
 		NewGitCmd(&opts),
 
 		NewUtilCmd(&opts),
@@ -139,7 +140,13 @@ git repo so that you don't have too.`,
 	)
 	f := c.PersistentFlags()
 	f.StringVarP(&opts.ConfigDir, "config", "c", opts.ConfigDir, "configuration directory")
-	f.StringVarP(&opts.Root, "dir", "d", opts.Root, "base of the git tree (where your configuration lives)")
+	f.StringVarP(
+		&opts.Root,
+		"dir",
+		"d",
+		opts.Root,
+		"base of the git tree (where your configuration lives)",
+	)
 	// f.StringVarP(&opts.Root, "root", "r", opts.Root, "root of the git tree (where your configuration lives)")
 	f.BoolVar(&opts.noColor, "no-color", opts.noColor, "disable color output")
 	f.BoolVarP(&opts.verbose, "verbose", "v", opts.verbose, "run commands verbosely")
@@ -271,6 +278,22 @@ func NewStatusCmd(r dotfiles.Repo) *cobra.Command {
 		},
 	}
 	return c
+}
+
+func NewDiffCmd(r dotfiles.Repo) *cobra.Command {
+	c := cobra.Command{
+		Use:   "diff",
+		Short: "Display a diff of the currently tracked files.",
+		Long: `Display a diff of the currently tracked files by running 'git diff' under the
+hood.`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			g := r.Git()
+			g.SetErr(cmd.ErrOrStderr())
+			g.SetOut(cmd.OutOrStdout())
+			return g.Cmd("diff").Run()
+		},
+	}
+	return &c
 }
 
 func NewCloneCmd(opts *Options) *cobra.Command {
