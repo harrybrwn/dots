@@ -26,6 +26,7 @@ dots add ~/.bashrc
 
 commits="$($git --no-pager log --no-color --oneline --all | wc -l)"
 if [[ $commits != 1 ]]; then
+    git --no-pager log --no-color --oneline --all
     echo 'expected one commit message'
     exit 1
 fi

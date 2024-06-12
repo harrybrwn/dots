@@ -41,16 +41,53 @@ type Flags struct {
 	version     string
 	packageDir  string
 	description string
+
+	bashCompDir string
+	zshCompDir  string
+	fishCompDir string
 }
 
-func (f *Flags) install(flag *flag.FlagSet) error {
+type FlagSet interface {
+	StringVar(*string, string, string, string)
+	BoolVar(*bool, string, bool, string)
+	Parse([]string) error
+}
+
+func (f *Flags) install(flag FlagSet) {
 	flag.StringVar(&f.ReleaseDir, "release", DefaultReleaseDir, "specify the release directory")
-	flag.StringVar(&f.Name, "name", f.Name, "specify the program name (will effect completion scripts and man page file names)")
+	flag.StringVar(
+		&f.Name,
+		"name",
+		f.Name,
+		"specify the program name (will effect completion scripts and man page file names)",
+	)
 	flag.StringVar(&f.version, "version", cli.Version, "give the release a version")
-	flag.StringVar(&f.packageDir, "package", f.packageDir, "directory that the debian package is being built from")
+	flag.StringVar(
+		&f.packageDir,
+		"package",
+		f.packageDir,
+		"directory that the debian package is being built from",
+	)
 	flag.BoolVar(&f.deb, "deb", f.deb, "generate files for a debian package")
 	flag.StringVar(&f.description, "description", f.description, "debian package description")
-	return flag.Parse(os.Args[1:])
+	flag.StringVar(
+		&f.bashCompDir,
+		"bash-completion-dir",
+		"/usr/share/bash-completion/completions",
+		"installation directory for bash completion scripts",
+	)
+	flag.StringVar(
+		&f.zshCompDir,
+		"zsh-completion-dir",
+		"/usr/share/zsh/vendor-completions",
+		"installation directory for zsh completion scripts",
+	)
+	flag.StringVar(
+		&f.fishCompDir,
+		"fish-completion-dir",
+		"/usr/share/fish/completions",
+		"installation directory for fish completion scripts",
+	)
 }
 
 func (f *Flags) validate() error {
@@ -66,7 +103,53 @@ func (f *Flags) hasPackageDir() bool {
 	return len(f.packageDir) != 0 && exists(f.packageDir)
 }
 
+func newRootCmd() *cobra.Command {
+	var flags Flags
+	c := cobra.Command{
+		Use: "gen",
+		RunE: func(cmd *cobra.Command, args []string) (err error) {
+			if len(flags.Name) == 0 {
+				return errors.New("no -name flag specified")
+			}
+			completionDir := filepath.Join(flags.ReleaseDir, "completion")
+			manDir := filepath.Join(flags.ReleaseDir, "man")
+
+			root := cli.NewRootCmd()
+			root.DisableAutoGenTag = true
+			root.CompletionOptions.DisableDefaultCmd = false
+			for _, shell := range []ShellType{Bash, Zsh, Fish, Powershell} {
+				err = genComp(root, completionDir, shell, flags.Name)
+				if err != nil {
+					log.Fatal(err)
+				}
+			}
+
+			if !exists(manDir) {
+				err := os.MkdirAll(manDir, 0755)
+				if err != nil {
+					log.Fatal(err)
+				}
+			}
+			err = cobradoc.GenManTree(cmd, &cobradoc.GenManHeader{}, manDir)
+			if err != nil {
+				log.Fatal(err)
+			}
+			return nil
+		},
+	}
+	flags.install(c.Flags())
+	return &c
+}
+
 func main() {
+	err := newRootCmd().Execute()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+}
+
+func run() {
 	var (
 		// releasedir = "release"
 		// name       = "dots"
@@ -81,7 +164,8 @@ func main() {
 		completionDir string
 		manDir        string
 	)
-	err := flags.install(flag.CommandLine)
+	flags.install(flag.CommandLine)
+	err := flag.CommandLine.Parse(os.Args[1:])
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -137,7 +221,7 @@ func main() {
 		for _, shell := range []ShellType{Bash, Zsh, Fish} {
 			d := filepath.Join(
 				flags.packageDir,
-				findCompletionDir(shell),
+				findCompletionDir(shell, &flags),
 			)
 			err := genComp(cmd, d, shell, flags.Name)
 			if err != nil {
@@ -210,16 +294,16 @@ func completionGenFunc(cmd *cobra.Command, shell ShellType) func(io.Writer) erro
 	}
 }
 
-func findCompletionDir(shell ShellType) string {
+func findCompletionDir(shell ShellType, flags *Flags) string {
 	switch shell {
 	case Bash:
-		return "/usr/share/bash-completion/completions"
+		return flags.bashCompDir
 	case Zsh:
-		return "/usr/share/zsh/vendor-completions"
+		return flags.zshCompDir
 	case Fish:
-		return "/usr/share/fish/completions"
+		return flags.fishCompDir
 	default:
-		return ""
+		panic(fmt.Sprintf("failed to find completion script installation directory for %q", shell))
 	}
 }
 

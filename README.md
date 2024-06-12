@@ -20,4 +20,4 @@ make uninstall
 - [ ] BUG: The `update` command doesn't allow you to update one file. For
     example, `dots update ~/.bashrc` will update all changes to all the tracked
     files not just the file given as an argument.
-
+- [ ] Add encryption/decryption.

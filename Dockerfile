@@ -10,7 +10,7 @@ RUN go mod download
 COPY . .
 RUN make build
 
-FROM alpine:3.17 as dots
+FROM alpine:3.20 as dots
 RUN apk update && \
     apk add             \
         git             \
@@ -59,6 +59,7 @@ ARG DEFAULT_REPO=git@github.com:harrybrwn/dotfiles.git
 ENV DOTS_DEFAULT_REPO=${DEFAULT_REPO}
 RUN echo "alias dots-i='dots install -y ${DEFAULT_REPO}'" >> /home/dots/.bashrc
 COPY --from=builder /dots/release/bin/dots /usr/bin/dots
+COPY --from=builder /dots/release/completion/bash/dots /usr/share/bash-completion/completions
 USER dots
 WORKDIR /home/dots
 ENV PAGER=less \

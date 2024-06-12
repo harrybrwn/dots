@@ -113,31 +113,47 @@ does under the hood. It handles all the crusty parts of managing a bare
 git repo so that you don't have too.`,
 			SilenceErrors: true,
 			SilenceUsage:  true,
+			Example: `  $ dots install github.com/harrybrwn/dotfiles
+  $ dots ls
+  $ dots add ~/.config/vlc/vlcrc
+  $ dots sync # push local changes
+  $ echo 'set number' >> ~/.vim/vimrc
+  $ dots update # update all tracked files with local repo
+  $ dots sync`,
 			CompletionOptions: cobra.CompletionOptions{
 				DisableDefaultCmd: completions == "false",
 			},
 		}
 	)
-	c.AddCommand(
-		NewLSCmd(&opts),
-		NewAddCmd(&opts),
-		NewRemoveCmd(&opts),
-		NewUpdateCmd(&opts),
-		NewSyncCmd(&opts),
-		NewUndoCmd(&opts),
+	c.AddGroup(
+		&cobra.Group{ID: "basic", Title: "Basic Commands:"},
+	)
 
+	cmds := []*cobra.Command{
 		NewCloneCmd(&opts),
 		NewInitCmd(&opts),
-		NewStatusCmd(&opts),
 		NewInstallCmd(&opts),
 		NewUninstallCmd(&opts),
+		NewStatusCmd(&opts),
+		NewPullCmd(&opts),
 		NewDiffCmd(&opts),
 		NewGitCmd(&opts),
 
 		NewUtilCmd(&opts),
 		NewVersionCmd(),
 		newTestCmd(&opts),
-	)
+	}
+
+	cmds = append(cmds, asGroup("basic",
+		NewLSCmd(&opts),
+		NewSyncCmd(&opts),
+		NewUndoCmd(&opts),
+		NewAddCmd(&opts),
+		NewRemoveCmd(&opts),
+		NewUpdateCmd(&opts),
+	)...)
+	c.AddCommand(cmds...)
+
 	f := c.PersistentFlags()
 	f.StringVarP(&opts.ConfigDir, "config", "c", opts.ConfigDir, "configuration directory")
 	f.StringVarP(
@@ -161,12 +177,13 @@ func NewVersionCmd() *cobra.Command {
 		Use: "version", Short: "Print the version and build info",
 		Aliases: []string{"v"},
 		Run: func(cmd *cobra.Command, args []string) {
+			const format = "%s\n" +
+				"commit:     %s\n" +
+				"build date: %s\n" +
+				"hash:       %s\n"
 			fmt.Fprintf(
 				cmd.OutOrStdout(),
-				"%s\n"+
-					"commit:     %s\n"+
-					"build date: %s\n"+
-					"hash:       %s\n",
+				format,
 				Version, Commit, Date, Hash)
 		},
 	}
@@ -187,6 +204,9 @@ func NewAddCmd(opts *Options) *cobra.Command {
 				args = append(args, updated...)
 			}
 			return add(opts, g, args)
+		},
+		ValidArgsFunction: func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+			return nil, cobra.ShellCompDirectiveDefault
 		},
 	}
 	c.Flags().BoolVarP(&up, "update", "u", up, "update any changed files as well as add new ones")
@@ -218,7 +238,7 @@ func NewRemoveCmd(opts *Options) *cobra.Command {
 			}
 			return nil
 		},
-		ValidArgsFunction: filesCompletionFunc(opts),
+		ValidArgsFunction: gitFilesCompletionFunc(opts),
 	}
 	opts.addUserFlags(c.Flags())
 	return c
@@ -233,8 +253,8 @@ func NewUpdateCmd(opts *Options) *cobra.Command {
 			"the internal repository with new changes except that\n" +
 			"it automatically updates files that have already\n" +
 			"been added and have changed since the last update.",
-		Example: "$ dots update\n" +
-			"\t$ dots update ~/.bashrc",
+		Example: "  $ dots update\n" +
+			"  $ dots update ~/.bashrc",
 		SuggestFor: []string{"add"},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return update(opts, args)
@@ -247,53 +267,14 @@ func NewUpdateCmd(opts *Options) *cobra.Command {
 
 func NewSyncCmd(r dotfiles.Repo) *cobra.Command {
 	c := &cobra.Command{
-		Use: "sync", Short: "Sync with the remote repository",
+		Use:   "sync",
+		Short: "Sync with the remote repository",
+		Long:  "Download updates in the remote repo and push local updates to the remote repo.",
 		RunE: func(*cobra.Command, []string) error {
 			return sync(r.Git())
 		},
 	}
 	return c
-}
-
-func NewStatusCmd(r dotfiles.Repo) *cobra.Command {
-	c := &cobra.Command{
-		Use:   "status",
-		Short: "Show the status of files being tracked.",
-		RunE: func(cmd *cobra.Command, args []string) error {
-			g := r.Git()
-			g.SetErr(cmd.ErrOrStderr())
-			g.SetOut(cmd.OutOrStdout())
-			err := g.Cmd(
-				"--no-pager",
-				"-c", "color.status=always",
-				"diff", "--stat",
-			).Run()
-			if err != nil {
-				return err
-			}
-			return g.Cmd(
-				"-c", "color.status=always",
-				"status",
-			).Run()
-		},
-	}
-	return c
-}
-
-func NewDiffCmd(r dotfiles.Repo) *cobra.Command {
-	c := cobra.Command{
-		Use:   "diff",
-		Short: "Display a diff of the currently tracked files.",
-		Long: `Display a diff of the currently tracked files by running 'git diff' under the
-hood.`,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			g := r.Git()
-			g.SetErr(cmd.ErrOrStderr())
-			g.SetOut(cmd.OutOrStdout())
-			return g.Cmd("diff").Run()
-		},
-	}
-	return &c
 }
 
 func NewCloneCmd(opts *Options) *cobra.Command {
@@ -559,7 +540,7 @@ type completeFunc func(
 	toComplete string,
 ) ([]string, cobra.ShellCompDirective)
 
-func filesCompletionFunc(r dotfiles.Repo) completeFunc {
+func gitFilesCompletionFunc(r dotfiles.Repo) completeFunc {
 	return func(
 		_ *cobra.Command,
 		_ []string,
@@ -584,12 +565,12 @@ func modifiedCompletionFunc(r dotfiles.Repo) completeFunc {
 	}
 }
 
-func newTestCmd(opts *Options) *cobra.Command {
+func newTestCmd(*Options) *cobra.Command {
 	return &cobra.Command{
 		Use:    "test",
 		Hidden: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return writeGitignore(opts)
+			return nil
 		},
 	}
 }
@@ -738,24 +719,30 @@ Aliases:
 	{{.NameAndAliases}}{{end}}{{if .HasExample}}
 
 Examples:
-
-	{{.Example}}{{end}}{{if .HasAvailableSubCommands}}
+{{.Example}}{{end}}{{if .HasAvailableSubCommands}}{{$cmds := .Commands}}{{if eq (len .Groups) 0}}
 
 Available Commands:
-{{range .Commands}}{{if (or .IsAvailableCommand (eq .Name "help"))}}
-	{{rpad .Name .NamePadding }} {{.Short}}{{end}}{{end}}{{end}}{{if .HasAvailableLocalFlags}}
+{{range $cmds}}{{if (or .IsAvailableCommand (eq .Name "help"))}}
+	{{rpad .Name .NamePadding }} {{.Short}}{{end}}{{end}}{{else}}{{range $group := .Groups}}
+
+{{.Title}}
+{{range $cmds}}{{if (and (eq .GroupID $group.ID) (or .IsAvailableCommand (eq .Name "help")))}}
+	{{rpad .Name .NamePadding }} {{.Short}}{{end}}{{end}}{{end}}{{if not .AllChildCommandsHaveGroup}}
+
+Additional Commands:
+{{range $cmds}}{{if (and (eq .GroupID "") (or .IsAvailableCommand (eq .Name "help")))}}
+	{{rpad .Name .NamePadding }} {{.Short}}{{end}}{{end}}{{end}}{{end}}{{end}}{{if .HasAvailableLocalFlags}}
 
 Flags:
 
-{{.LocalFlags.FlagUsagesWrapped 100 | trimTrailingWhitespaces | indent}}{{end}}{{if .HasAvailableInheritedFlags}}
+{{.LocalFlags.FlagUsages | trimTrailingWhitespaces | indent}}{{end}}{{if .HasAvailableInheritedFlags}}
 
 Global Flags:
 
 {{.InheritedFlags.FlagUsages | trimTrailingWhitespaces | indent}}{{end}}{{if .HasHelpSubCommands}}
 
-Additional help topics:
-{{range .Commands}}{{if .IsAdditionalHelpTopicCommand}}
-	{{rpad .Name .NamePadding }} {{.Short}}{{end}}{{end}}{{end}}{{if .HasAvailableSubCommands}}
+Additional help topics:{{range .Commands}}{{if .IsAdditionalHelpTopicCommand}}
+	{{rpad .CommandPath .CommandPathPadding}} {{.Short}}{{end}}{{end}}{{end}}{{if .HasAvailableSubCommands}}
 
 Use "{{.CommandPath}} [command] --help" for more information about a command.{{end}}
 `

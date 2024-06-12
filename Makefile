@@ -24,7 +24,7 @@ clean:
 	$(RM) -r release dist result
 
 gen completion man:
-	go run ./cmd/gen -name=$(NAME)
+	go run ./cmd/gen --name=$(NAME)
 
 ZSH_COMP=~/.config/zsh/oh-my-zsh/completions
 BASH_COMP=~/.local/share/bash-completion/completions
@@ -68,16 +68,17 @@ package: $(PKG).deb
 # build the docker image an is used as a makefile depenancy for the docker
 # image.
 IMAGE_LOCK=$(DIST)/.docker-build-lock
+TEST_IMAGE_LOCK=$(DIST)/.test-image-lock
 
 image: $(IMAGE_LOCK)
+test-image: $(TEST_IMAGE_LOCK)
 
 container: $(IMAGE_LOCK)
 	docker container run                  \
 		-e SSH_AUTH_SOCK=/ssh-auth-sock   \
 		-v $$SSH_AUTH_SOCK:/ssh-auth-sock \
 		-v $(shell pwd):/dots:ro          \
-		-w /root                          \
-		--rm -it dots bash
+		--rm -it dots:latest bash
 
 docker-test: $(IMAGE_LOCK)
 	@scripts/docker-test.sh
@@ -85,17 +86,22 @@ docker-test: $(IMAGE_LOCK)
 DOCKER_TEST_SCRIPTS=$(shell find ./tests -name 'test_*.sh')
 GOFILES=$(shell scripts/sourcehash.sh -e '*_test.go' -e './cmd/gen/*' -l)
 
-$(IMAGE_LOCK): Dockerfile $(GOFILES) $(DOCKER_TEST_SCRIPTS)
+$(IMAGE_LOCK): Dockerfile $(GOFILES)
 	@if [ ! -d $(DIST) ]; then mkdir $(DIST); fi
-	docker image build -t dots:latest -f ./Dockerfile .
+	docker image build --target dots -t dots:latest -f ./Dockerfile .
+	@touch $@
+
+$(TEST_IMAGE_LOCK): Dockerfile $(GOFILES) $(DOCKER_TEST_SCRIPTS)
+	@if [ ! -d $(DIST) ]; then mkdir $(DIST); fi
+	docker image build --target test -t dots:test-latest -f ./Dockerfile .
 	@touch $@
 
 $(PKG).deb: $(PKG)/usr/bin/$(NAME)
 	go run $(GOFLAGS) ./cmd/gen \
-		-deb            \
-		-package=$(PKG) \
-		-name=$(NAME)   \
-		-description='Manage your dotsfiles.'
+		--package=$(PKG) \
+		--name=$(NAME)   \
+		-deb             \
+		--description='Manage your dotsfiles.'
 	dpkg-deb --build $(PKG)
 
 %/bin/$(NAME): $(SOURCE)

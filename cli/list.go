@@ -90,9 +90,9 @@ func NewLSCmd(cli *Options) *cobra.Command {
 		ValidArgsFunction: lsCompletionFunc(cli),
 	}
 	f := c.Flags()
-	f.BoolVar(&flags.flat, "flat", flags.flat, "print as flat list")
-	f.BoolVar(&flags.noPager, "no-pager", flags.noPager, "disable the automatic pager")
+	f.BoolVarP(&flags.flat, "flat", "f", flags.flat, "print as flat list")
 	f.BoolVarP(&flags.untracked, "untracked", "u", flags.untracked, "show only untracked files")
+	f.BoolVar(&flags.noPager, "no-pager", flags.noPager, "disable the automatic pager")
 	return c
 }
 
@@ -178,6 +178,9 @@ func untracked(
 			continue
 		}
 		tr.Add(f)
+	}
+	if flags.flat {
+		return listFlat(out, tr.ListPaths(), flags)
 	}
 	var (
 		buf   bytes.Buffer

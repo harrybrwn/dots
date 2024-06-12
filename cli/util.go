@@ -85,7 +85,7 @@ func NewGetCmd(opts *Options) *cobra.Command {
 			_ = git.Cmd("--no-pager", "diff", "--name-only").Run()
 			return nil
 		},
-		ValidArgsFunction: filesCompletionFunc(opts),
+		ValidArgsFunction: gitFilesCompletionFunc(opts),
 	}
 	c.Flags().BoolVarP(
 		&force, "force", "f",
@@ -99,7 +99,7 @@ func NewCatCmd(opts *Options) *cobra.Command {
 		Use:               "cat <filenames...>",
 		Short:             "Print a file being tracked to standard out.",
 		Args:              cobra.MinimumNArgs(1),
-		ValidArgsFunction: filesCompletionFunc(opts),
+		ValidArgsFunction: gitFilesCompletionFunc(opts),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			git := opts.git()
 			command := []string{"--no-pager", "show"}
@@ -274,4 +274,11 @@ func remove(index int, arr []string) []string {
 	l := len(arr) - 1
 	arr[index] = arr[l]
 	return arr[:l]
+}
+
+func asGroup(groupID string, cmds ...*cobra.Command) []*cobra.Command {
+	for _, c := range cmds {
+		c.GroupID = groupID
+	}
+	return cmds
 }
