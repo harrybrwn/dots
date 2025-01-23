@@ -1,6 +1,6 @@
 package main
 
-//go:generate go run ./cmd/gen -name=dots
+//go:generate go run ./cmd/gen --name=dots
 
 import (
 	"fmt"
