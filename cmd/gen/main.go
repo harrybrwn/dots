@@ -130,7 +130,7 @@ func newRootCmd() *cobra.Command {
 					log.Fatal(err)
 				}
 			}
-			err = cobradoc.GenManTree(cmd, &cobradoc.GenManHeader{}, manDir)
+			err = cobradoc.GenManTree(root, &cobradoc.GenManHeader{}, manDir)
 			if err != nil {
 				log.Fatal(err)
 			}

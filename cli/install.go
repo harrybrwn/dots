@@ -16,14 +16,14 @@ import (
 
 func NewInstallCmd(opts *Options) *cobra.Command {
 	var (
-		yes bool
-		to  string
+		yes    bool
+		to     string
+		dryRun bool
 	)
 	c := &cobra.Command{
 		Use:   "install [source]",
 		Short: "Copy all of the tracked files to the current root",
-		Long: `
-Copy all of the tracked files to the current root (will overwrite existing
+		Long: `Copy all of the tracked files to the current root (will overwrite existing
 files). Also optionally clone from a remove source before installing.
 `,
 		Aliases: []string{"i"},
@@ -88,6 +88,7 @@ files). Also optionally clone from a remove source before installing.
 	f := c.Flags()
 	f.BoolVarP(&yes, "yes", "y", yes, "set all yes-or-no prompts to yes")
 	f.StringVar(&to, "to", "", "install to an alternate location")
+	f.BoolVar(&dryRun, "dry-run", dryRun, "run the install without writing anything to disk")
 	return c
 }
 

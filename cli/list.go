@@ -27,6 +27,7 @@ type lsFlags struct {
 	flat      bool
 	noPager   bool
 	untracked bool
+	changed   bool
 }
 
 func NewLSCmd(cli *Options) *cobra.Command {
@@ -92,6 +93,7 @@ func NewLSCmd(cli *Options) *cobra.Command {
 	f := c.Flags()
 	f.BoolVarP(&flags.flat, "flat", "f", flags.flat, "print as flat list")
 	f.BoolVarP(&flags.untracked, "untracked", "u", flags.untracked, "show only untracked files")
+	f.BoolVar(&flags.changed, "changed", flags.changed, "display changed files")
 	f.BoolVar(&flags.noPager, "no-pager", flags.noPager, "disable the automatic pager")
 	return c
 }

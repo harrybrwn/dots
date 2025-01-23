@@ -192,8 +192,9 @@ func NewVersionCmd() *cobra.Command {
 func NewAddCmd(opts *Options) *cobra.Command {
 	var up bool // --update
 	c := &cobra.Command{
-		Use: "add <file...>", Short: "Add new files.",
-		Args: cobra.MinimumNArgs(1),
+		Use:   "add <file...>",
+		Short: "Add new files",
+		Args:  cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			g := opts.Git()
 			if up {

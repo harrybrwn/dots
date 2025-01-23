@@ -13,7 +13,7 @@ import (
 func NewUninstallCmd(opts *Options) *cobra.Command {
 	c := &cobra.Command{
 		Use:   "uninstall",
-		Short: "Remove all managed files.",
+		Short: "Remove all managed files",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			g := opts.Git()
 			objects, err := g.Files()

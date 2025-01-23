@@ -35,7 +35,7 @@ func NewUtilCmd(opts *Options) *cobra.Command {
 func NewSetSSHKeyCmd(opts *Options) *cobra.Command {
 	return &cobra.Command{
 		Use:   "set-ssh-key <file>",
-		Short: "Set an ssh identity file to be used on every remote operation.",
+		Short: "Set an ssh identity file to be used on every remote operation",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return opts.git().ConfigLocalSet(
@@ -50,7 +50,8 @@ func NewGetCmd(opts *Options) *cobra.Command {
 	var force bool
 	c := &cobra.Command{
 		Use:   "get <file>",
-		Short: "Pull a single file out and write it the to current working directory.",
+		Short: "Pull a single file out and write it the to current working directory",
+		Long:  "Pull a single file out and write it the to current working directory.",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			originTree := opts.Root
@@ -97,7 +98,7 @@ func NewGetCmd(opts *Options) *cobra.Command {
 func NewCatCmd(opts *Options) *cobra.Command {
 	c := &cobra.Command{
 		Use:               "cat <filenames...>",
-		Short:             "Print a file being tracked to standard out.",
+		Short:             "Print a file being tracked to standard out",
 		Args:              cobra.MinimumNArgs(1),
 		ValidArgsFunction: gitFilesCompletionFunc(opts),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -131,7 +132,7 @@ func newUtilCommands(opts *Options) []*cobra.Command {
 		},
 		{
 			Use:   "modified",
-			Short: "Print a table of info for modified files.",
+			Short: "Print a table of info for modified files",
 			RunE: func(cmd *cobra.Command, args []string) error {
 				git := opts.git()
 				mods, err := git.Modifications()
@@ -151,7 +152,7 @@ func newUtilCommands(opts *Options) []*cobra.Command {
 		},
 		{
 			Use:   "objects",
-			Short: "Print a table of info for git objects.",
+			Short: "Print a table of info for git objects",
 			RunE: func(cmd *cobra.Command, args []string) error {
 				git := opts.git()
 				objects, err := git.Files()
@@ -173,7 +174,7 @@ func newUtilCommands(opts *Options) []*cobra.Command {
 		},
 		{
 			Use:   "graph",
-			Short: "A fancy git log alias.",
+			Short: "A fancy git log alias",
 			RunE: func(cmd *cobra.Command, args []string) error {
 				git := opts.git()
 				git.SetOut(cmd.OutOrStdout())

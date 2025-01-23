@@ -91,7 +91,7 @@ func NewUndoCmd(opts *Options) *cobra.Command {
 func NewPullCmd(r dotfiles.Repo) *cobra.Command {
 	c := cobra.Command{
 		Use:   "pull",
-		Short: "Download changes from the git repo.",
+		Short: "Download changes from the git repo",
 		Long:  `Download changes from the git repo. Similar to 'git pull'.`,
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -107,7 +107,7 @@ func NewPullCmd(r dotfiles.Repo) *cobra.Command {
 func NewDiffCmd(r dotfiles.Repo) *cobra.Command {
 	c := cobra.Command{
 		Use:   "diff",
-		Short: "Display a diff of the currently tracked files.",
+		Short: "Display a diff of the currently tracked files",
 		Long: `Display a diff of the currently tracked files by running 'git diff' under the
 hood.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -130,7 +130,7 @@ hood.`,
 func NewStatusCmd(r dotfiles.Repo) *cobra.Command {
 	c := &cobra.Command{
 		Use:   "status",
-		Short: "Show the status of files being tracked.",
+		Short: "Show the status of files being tracked",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			g := r.Git()
 			g.SetErr(cmd.ErrOrStderr())
