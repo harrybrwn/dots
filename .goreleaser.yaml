@@ -42,8 +42,7 @@ builds:
       - "-X github.com/harrybrwn/dots/cli.Hash={{ .Commit }}"
 
 nfpms:
-  - file_name_template: "{{ .ConventionalFileName }}"
-    id: packages
+  - id: packages
     homepage: https://github.com/harrybrwn/dots
     maintainer: Harry Brown
     description: 'Manage your dotfiles.'
