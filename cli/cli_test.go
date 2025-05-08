@@ -69,7 +69,3 @@ func TestDirContainsPath(t *testing.T) {
 		}
 	}
 }
-
-func TestWriteGitignore(t *testing.T) {
-	filepath.Rel(".config/dots", "/root")
-}
