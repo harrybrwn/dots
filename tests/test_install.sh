@@ -8,6 +8,7 @@ source "$(cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd)/commo
 
 #dots clone git@github.com:thoughtbot/dotfiles.git
 # dots clone https://github.com/thoughtbot/dotfiles.git
+#dots clone git@github.com:pwyde/dotfiles.git
 
 # dots clone https://github.com/hlissner/dotfiles.git
 dots clone git@github.com:hlissner/dotfiles.git

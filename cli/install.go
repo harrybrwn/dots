@@ -60,7 +60,10 @@ files). Also optionally clone from a remove source before installing.
 					err = e
 					return
 				}
-				e = git.RunCmd("restore", "--staged", opts.Root)
+				env := map[string]string{
+					"GIT_CONFIG_NOSYSTEM": "1", // skip the global config
+				}
+				e = git.RunCmdWithEnv(env, "restore", "--staged", opts.Root)
 				if e != nil && err == nil {
 					err = e
 					return
@@ -72,7 +75,7 @@ files). Also optionally clone from a remove source before installing.
 						return
 					}
 				}
-				e = git.RunCmd("update-index", "--refresh")
+				e = git.RunCmdWithEnv(env, "update-index", "--refresh")
 				if e != nil && err == nil {
 					err = errors.Wrap(err, "failed to refresh index")
 				}
@@ -114,7 +117,7 @@ func install(opts *Options, dest string, archive *tar.Reader, yes bool) error {
 		if rel, err := filepath.Rel(opts.Root, p); err == nil && rel == ReadMeName {
 			p = filepath.Join(opts.ConfigDir, ReadMeName)
 		}
-		if !yes && exists(p) {
+		if !yes && existsAndIsNotDir(p) {
 			if !yesOrNo(
 				os.Stdin, os.Stdout,
 				fmt.Sprintf("would you like to overwrite %q", p),
@@ -200,7 +203,9 @@ func restoreReadMe(g *git.Git) error {
 	}
 	for _, mod := range mods {
 		if mod.Type == git.ModDelete && mod.Name == ReadMeName {
-			err = g.RunCmd("restore", mod.Name)
+			err = g.RunCmdWithEnv(map[string]string{
+				"GIT_CONFIG_NOSYSTEM": "1", // skip reading the global config
+			}, "restore", mod.Name)
 			if err != nil {
 				return err
 			}

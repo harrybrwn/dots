@@ -1,3 +1,5 @@
+version: 2
+
 project_name: dots
 
 before:
@@ -6,7 +8,7 @@ before:
     - go generate ./...
 
 snapshot:
-  name_template: '{{ incpatch .Version }}-snapshot'
+  version_template: '{{ incpatch .Version }}'
 
 builds:
   - env:
@@ -57,3 +59,19 @@ nfpms:
       - rpm
     dependencies:
       - git
+
+archives:
+  - wrap_in_directory: true
+    files:
+      - README.md
+      - LICENSE
+      - src: ./release/completion/bash/dots
+        dst: /usr/share/bash-completion/completions/dots
+      - src: ./release/completion/zsh/_dots
+        dst: /usr/share/zsh/vendor-completions/_dots
+      - src: ./release/completion/fish/dots.fish
+        dst: /usr/share/fish/completions/dots.fish
+      - src: ./release/man/
+        dst: /usr/share/man/man1/
+
+# yaml-language-server: $schema=https://goreleaser.com/static/schema.json

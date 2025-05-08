@@ -80,7 +80,14 @@ container: $(IMAGE_LOCK)
 		-v $(shell pwd):/dots:ro          \
 		--rm -it dots:latest bash
 
-docker-test: $(IMAGE_LOCK)
+test-container: $(TEST_IMAGE_LOCK)
+	docker container run \
+		-e SSH_AUTH_SOCK=/ssh-auth-sock   \
+		-v $$SSH_AUTH_SOCK:/ssh-auth-sock \
+		-v $(shell pwd):/dots:ro          \
+		--rm -it dots-test:latest
+
+docker-test: $(IMAGE_LOCK) $(TEST_IMAGE_LOCK)
 	@scripts/docker-test.sh
 
 DOCKER_TEST_SCRIPTS=$(shell find ./tests -name 'test_*.sh')
@@ -93,7 +100,7 @@ $(IMAGE_LOCK): Dockerfile $(GOFILES)
 
 $(TEST_IMAGE_LOCK): Dockerfile $(GOFILES) $(DOCKER_TEST_SCRIPTS)
 	@if [ ! -d $(DIST) ]; then mkdir $(DIST); fi
-	docker image build --target test -t dots:test-latest -f ./Dockerfile .
+	docker image build --target test -t dots:test-latest -t dots-test:latest -f ./Dockerfile .
 	@touch $@
 
 $(PKG).deb: $(PKG)/usr/bin/$(NAME)

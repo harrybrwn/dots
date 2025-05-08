@@ -610,7 +610,7 @@ func configdir() string {
 	}
 	dir, ok = os.LookupEnv("HOME")
 	if ok {
-		return filepath.Join(dir, "."+name)
+		return filepath.Join(dir, ".config", name)
 	}
 	return ""
 }
@@ -618,6 +618,14 @@ func configdir() string {
 func exists(path string) bool {
 	_, err := os.Stat(path)
 	return !os.IsNotExist(err)
+}
+
+func existsAndIsNotDir(path string) bool {
+	stat, err := os.Stat(path)
+	if err != nil || os.IsNotExist(err) {
+		return false
+	}
+	return !stat.IsDir()
 }
 
 func yesOrNo(in io.Reader, out io.Writer, prompt string) bool {

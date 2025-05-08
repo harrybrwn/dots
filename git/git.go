@@ -55,6 +55,14 @@ func (g *Git) Cmd(args ...string) *exec.Cmd {
 	return cmd
 }
 
+func (g *Git) CmdWithEnv(args []string, env map[string]string) *exec.Cmd {
+	cmd := g.Cmd()
+	for k, v := range env {
+		cmd.Env = append(cmd.Env, fmt.Sprintf("%s=%s", k, v))
+	}
+	return cmd
+}
+
 func (g *Git) newCmd(args []string) *exec.Cmd {
 	arguments := make([]string, 4, 4+len(args)+len(g.args))
 	arguments[0] = "--git-dir"
@@ -67,6 +75,14 @@ func (g *Git) newCmd(args []string) *exec.Cmd {
 }
 
 func (g *Git) RunCmd(args ...string) error { return run(g.Cmd(args...)) }
+
+func (g *Git) RunCmdWithEnv(env map[string]string, args ...string) error {
+	c := g.Cmd(args...)
+	for k, v := range env {
+		c.Env = append(c.Env, fmt.Sprintf("%s=%s", k, v))
+	}
+	return run(c)
+}
 
 func (g *Git) Exists() bool {
 	return exists(g.gitDir) && isGitDir(g.gitDir)

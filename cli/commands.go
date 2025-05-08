@@ -25,8 +25,8 @@ func NewInitCmd(opts *Options) *cobra.Command {
 				) {
 				return errors.Errorf("%q already exists", opts.repo())
 			}
-			os.RemoveAll(opts.repo())
-			os.RemoveAll(opts.ConfigDir)
+			_ = os.RemoveAll(opts.repo())
+			_ = os.RemoveAll(opts.ConfigDir)
 			if err := os.Mkdir(opts.ConfigDir, os.FileMode(0775)); err != nil {
 				return err
 			}

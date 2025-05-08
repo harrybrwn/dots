@@ -1,6 +1,6 @@
 ARG UBUNTU_VERSION=20.04
 
-FROM golang:1.22-alpine as builder
+FROM golang:1.22-alpine AS builder
 
 RUN apk update && apk add git make
 WORKDIR /dots
@@ -10,7 +10,7 @@ RUN go mod download
 COPY . .
 RUN make build
 
-FROM alpine:3.20 as dots
+FROM alpine:3.20 AS dots
 RUN apk update && \
     apk add             \
         git             \
@@ -38,7 +38,7 @@ ENV LESS=--raw-control-chars
 VOLUME /dots
 WORKDIR /dots
 
-FROM ubuntu:${UBUNTU_VERSION} as test
+FROM ubuntu:${UBUNTU_VERSION} AS test
 RUN yes | unminimize && \
     apt update && \
     apt install -yq git vim && \
