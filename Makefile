@@ -17,6 +17,7 @@ GOFLAGS=-trimpath \
 		-X 'github.com/harrybrwn/dots/cli.Date=$(DATE)'"
 ARCH=$(shell go env GOARCH)
 DIST=release
+PREFIX?=/usr/local
 
 build: $(BIN) gen
 
@@ -34,14 +35,13 @@ install: $(BIN) gen
 	@if [ ! -d $(BASH_COMP) ]; then mkdir -p $(BASH_COMP); fi
 	@if [ ! -d $(ZSH_COMP) ];  then mkdir -p $(ZSH_COMP);  fi
 	@if [ ! -d $(MAN_DIR_LOCAL) ]; then mkdir -p $(MAN_DIR_LOCAL); fi
-	# install $(BIN) $$GOPATH/bin/
-	cp $(BIN) $$GOPATH/bin/
+	sudo install -m 0755 $(BIN) $(PREFIX)/bin/$(NAME)
 	cp $(COMP)/bash/$(NAME) $(BASH_COMP)
 	cp $(COMP)/zsh/_$(NAME) $(ZSH_COMP)
 	cp release/man/dots* $(MAN_DIR_LOCAL)
 
 uninstall:
-	go clean -i
+	sudo $(RM) $(PREFIX)/bin/$(NAME)
 	$(RM) $(ZSH_COMP)/_$(NAME)
 	$(RM) $(BASH_COMP)/$(NAME)
 	$(RM) ~/.local/share/man/man1/dots*
