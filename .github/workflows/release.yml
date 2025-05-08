@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        required: false
+        required: true
         description: "Version tag for the new release"
         type: string
 
@@ -17,13 +17,17 @@ jobs:
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
-        # with:
-        #   ref: ${{ inputs.version }}
+        with:
+          ref: ${{ inputs.version }}
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ~1.24
       - name: Build Release
         uses: goreleaser/goreleaser-action@v6
         with:
           distribution: goreleaser
           version: '~> v2'
-          args: release --clean
+          args: release --clean --snapshot
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
