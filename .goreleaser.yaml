@@ -7,6 +7,11 @@ before:
     - go mod tidy
     - go generate ./...
 
+release:
+  github:
+    owner: harrybrwn
+    name: dots
+
 snapshot:
   version_template: '{{ incpatch .Version }}'
 
