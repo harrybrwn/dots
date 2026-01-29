@@ -17,11 +17,26 @@ import (
 )
 
 const (
+	// gitSHA256RawSZ is the length of a sha256 hash in bytes.
+	// "hash.h" -> #define GIT_SHA256_RAWSZ 32
+	gitSHA256RawSZ = 32
+	// gitSHA256HexSZ is the length of a sha256 hash in hex.
+	// "hash.h" -> #define GIT_SHA256_HEXSZ (2 * GIT_SHA256_RAWSZ)
+	gitSHA256HexSZ = 2 * gitSHA256RawSZ
+	// The block size of SHA-256.
+	// "hash.h" -> #define GIT_SHA256_BLKSZ 64
+	gitSHA256BlkSZ = 64
+	// "hash.h" -> #define GIT_MAX_RAWSZ GIT_SHA256_RAWSZ
+	gitMaxRawSZ = gitSHA256RawSZ
+)
+
+const (
 	// HashSize is the size hash for the current hash algorithm being used.
 	HashSize = sha1.Size
 	// MaxHashSize is the maximum length that of a git hash no matter what
-	// algorithm is used.
-	MaxHashSize = 32
+	// algorithm is used. Corresponds with GIT_MAX_RAWSZ in "hash.h" of the git
+	// source code.
+	MaxHashSize = gitMaxRawSZ
 )
 
 const (
@@ -33,6 +48,15 @@ const (
 	dataChanged  = 0x0020
 	typeChanged  = 0x0040
 )
+
+// "hash.h" 'struct object_id'
+type objectID struct {
+	hash []byte
+	algo int
+}
+
+// TODO:
+// - implement 'refresh_index' from "read-cache.c"
 
 type index struct {
 	header  indexCacheHeader
@@ -118,6 +142,7 @@ func (hdr *indexCacheHeader) UnmarshalBinary(data []byte) error {
 }
 
 func readIndex(r io.Reader) (*index, error) {
+	// See 'do_read_index' in "read-cache.c"
 	raw, err := io.ReadAll(r)
 	if err != nil {
 		return nil, err
@@ -160,11 +185,12 @@ type indexStatData struct {
 	size  uint32
 }
 
-// from read-cache-ll.h
+// see `struct cache_entry` from "read-cache-ll.h"
 type indexCacheEntry struct {
 	statData indexStatData
 	mode     fs.FileMode
 	flags    uint
+	// TODO: Figure out when 'mem_pool_allocated' is included.
 	//memPoolAlloc uint
 	nameLen uint
 	index   uint
@@ -189,7 +215,7 @@ type indexOnDiskCacheEntry struct {
 	 *     flags2 uint16
 	 * }
 	 */
-	data [MaxHashSize + 2*unsafe.Sizeof(uint16(0))]byte
+	data [gitMaxRawSZ + 2*unsafe.Sizeof(uint16(0))]byte
 	name string
 }
 

@@ -1,13 +1,13 @@
 package main
 
-//go:generate go run ./cmd/gen --name=dots
-
 import (
 	"fmt"
 	"os"
 
 	"github.com/harrybrwn/dots/cli"
 )
+
+//go:generate go run ./cmd/gen --name=dots
 
 func main() {
 	cmd := cli.NewRootCmd()

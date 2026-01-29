@@ -357,6 +357,10 @@ func add(opts *Options, git *git.Git, files []string) (err error) {
 
 func update(opts *Options, updated []string) (err error) {
 	g := opts.git()
+	err = g.Cmd("pull").Run()
+	if err != nil {
+		return errors.Wrap(err, "failed to pull before updating")
+	}
 	updated, err = getUpdated(g, opts, updated)
 	if err != nil {
 		return err

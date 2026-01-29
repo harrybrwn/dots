@@ -8,6 +8,7 @@ import (
 	"io"
 	"io/fs"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -573,6 +574,18 @@ func meta(t *testing.T) *testmeta {
 
 func (tm *testmeta) appendfile(name, contents string) error {
 	return appendfile(filepath.Join(tm.git.WorkingTree(), name), contents)
+}
+
+func (tm *testmeta) sh(cmd string) {
+	c := exec.Command("bash", "-c", cmd)
+	c.Dir = tm.tmp
+	c.Stdout = os.Stdout
+	c.Stderr = os.Stderr
+	c.Stdin = os.Stdin
+	err := c.Run()
+	if err != nil {
+		tm.t.Fatal(err)
+	}
 }
 
 func testgit(t *testing.T) *Git {

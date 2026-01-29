@@ -274,7 +274,7 @@ func genComp(cmd *cobra.Command, dir string, shell ShellType, prog string) error
 	if err != nil {
 		return errors.Wrap(err, "failed to open completion script file")
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	gen := completionGenFunc(cmd, shell)
 	return gen(f)
 }
