@@ -1,3 +1,5 @@
+// Package git is a bare bones implementation of the git internals or tools for
+// running git commands.
 package git
 
 import (
@@ -352,8 +354,8 @@ func objectFilename(gitDir, hash string) string {
 	)
 }
 
-func (g *Git) OpenObject(ref Ref) (*Object, error) {
-	ref, err := ref.fullFollow(g)
+func (g *Git) OpenObject(ref Ref) (obj *Object, err error) {
+	ref, err = ref.fullFollow(g)
 	if err != nil {
 		return nil, err
 	}
@@ -368,14 +370,18 @@ func (g *Git) OpenObject(ref Ref) (*Object, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer rc.Close()
-	var obj Object
-	err = parseObject(rc, &obj)
+	defer func() {
+		if e := rc.Close(); e != nil && err == nil {
+			err = e
+		}
+	}()
+	obj = new(Object)
+	err = parseObject(rc, obj)
 	if err != nil {
 		return nil, err
 	}
 	obj.Hash = r
-	return &obj, nil
+	return obj, nil
 }
 
 func (g *Git) WriteObject(o *Object) error {
@@ -464,52 +470,6 @@ func (g Git) CommitParent(commit *Commit) (*Commit, error) {
 	return g.OpenCommit(NewHashRef(commit.Parent))
 }
 
-type Config map[string]any
-
-func (c Config) Exists(key string) bool {
-	_, ok := c[key]
-	return ok
-}
-
-func (g *Git) Config() (Config, error) {
-	return g.config("--list")
-}
-
-func (g *Git) ConfigLocal() (Config, error) {
-	return g.config("--local", "--list")
-}
-
-func (g *Git) ConfigGlobal() (Config, error) {
-	return g.config("--global", "--list")
-}
-
-func (g *Git) ConfigSet(key, value string) error {
-	return run(g.Cmd("config", key, value))
-}
-
-func (g *Git) ConfigLocalSet(key, value string) error {
-	return run(g.Cmd("config", "--local", key, value))
-}
-
-func (g *Git) ConfigGlobalSet(key, value string) error {
-	return run(g.Cmd("config", "--global", key, value))
-}
-
-func (g *Git) SetArgs(arguments ...string) { g.args = arguments }
-
-func (g *Git) SetOut(out io.Writer) { g.stdout = out }
-func (g *Git) SetErr(w io.Writer)   { g.stderr = w }
-
-func (g *Git) SetGlobalConfig(filename string) *Git {
-	g.configGlobal = filename
-	return g
-}
-
-func (g *Git) SetSystemConfig(filename string) *Git {
-	g.configSystem = filename
-	return g
-}
-
 func (g *Git) FileCount() (int, error) {
 	f, err := os.Open(g.indexFile())
 	if err != nil {
@@ -535,7 +495,7 @@ func (g *Git) config(flags ...string) (Config, error) {
 		args = make([]string, 1+len(flags))
 	)
 	args[0] = "config"
-	for i := 0; i < len(flags); i++ {
+	for i := range len(flags) {
 		args[i+1] = flags[i]
 	}
 	cmd := g.Cmd(args...)
@@ -544,8 +504,7 @@ func (g *Git) config(flags ...string) (Config, error) {
 	if err != nil {
 		return nil, err
 	}
-	lines := strings.Split(buf.String(), "\n")
-	for _, l := range lines {
+	for l := range strings.SplitSeq(buf.String(), "\n") {
 		parts := strings.SplitN(l, "=", 2)
 		if len(parts) < 2 {
 			continue

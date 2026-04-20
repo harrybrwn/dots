@@ -1,3 +1,4 @@
+// Package tree implements a tree representation.
 package tree
 
 import (
@@ -85,6 +86,32 @@ func (n *Node) ListPaths() []string {
 	return paths
 }
 
+func (n *Node) GetChildren() []*Node {
+	return n.getChildren()
+}
+
+func (n *Node) Get(path string) (*Node, error) {
+	if path == "/" || path == "" {
+		return n, nil
+	}
+	parts := strings.Split(path, "/")
+	if len(parts) == 0 {
+		return n, nil
+	}
+	if len(parts) > 0 && parts[0] == "" {
+		parts = parts[1:]
+	}
+	cur := n
+	for _, p := range parts {
+		c, ok := cur.children[p]
+		if !ok {
+			return nil, fmt.Errorf("could not find %q of %#v", p, parts)
+		}
+		cur = c
+	}
+	return cur, nil
+}
+
 func (n *Node) addPaths(paths []string) {
 	for _, p := range paths {
 		n.addPath(p)
@@ -93,7 +120,21 @@ func (n *Node) addPaths(paths []string) {
 
 func (n *Node) addPath(p string) {
 	parts := fileSplit(p)
-	expand(parts, n)
+	if len(parts) < 1 {
+		return
+	}
+	// expand(parts, n)
+	cur := n
+	for _, part := range parts {
+		if _, ok := cur.children[part]; !ok {
+			cur.Type = TreeNode
+			c := createNode(cur, part, TreeNode)
+			c.children = make(map[string]*Node)
+			cur.children[part] = c
+		}
+		cur = cur.children[part]
+	}
+	cur.Type = LeafNode
 }
 
 // Print will write a string representation of the tree to an io.Writer
@@ -194,7 +235,7 @@ func (p *printer) walk(t *Node, prefix string) error {
 	return nil
 }
 
-func (p *printer) writef(format string, v ...interface{}) error {
+func (p *printer) writef(format string, v ...any) error {
 	_, err := fmt.Fprintf(p.w, format, v...)
 	return err
 }
@@ -218,7 +259,7 @@ func count(root *Node) int {
 }
 
 func createNode(parent *Node, name string, tp NodeType) *Node {
-	n := &Node{Name: name, Type: tp}
+	n := &Node{Name: name, Type: tp, children: make(map[string]*Node)}
 	if parent != nil {
 		n.path = append(parent.path, parent.Name)
 	}

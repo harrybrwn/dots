@@ -15,6 +15,7 @@ import (
 	"github.com/harrybrwn/dots/git"
 	"github.com/harrybrwn/dots/pkg/stdio"
 	"github.com/harrybrwn/dots/tree"
+	"github.com/harrybrwn/dots/tui"
 )
 
 type CLI interface {
@@ -24,14 +25,15 @@ type CLI interface {
 
 type lsFlags struct {
 	CLI
-	flat      bool
-	noPager   bool
-	untracked bool
-	changed   bool
+	flat, tree bool
+	noPager    bool
+	untracked  bool
+	changed    bool
 }
 
 func NewLSCmd(cli *Options) *cobra.Command {
 	flags := lsFlags{CLI: cli}
+	test := false
 	c := &cobra.Command{
 		Use:   "ls",
 		Short: "List the files being tracked",
@@ -81,20 +83,35 @@ func NewLSCmd(cli *Options) *cobra.Command {
 
 			if flags.flat {
 				return listFlat(cmd.OutOrStdout(), tr.ListPaths(), &flags)
+			} else if flags.tree {
+				mods, err := modifiedSet(g)
+				if err != nil {
+					return err
+				}
+				return listTree(cmd.OutOrStdout(), tr, mods, &flags)
 			}
 			mods, err := modifiedSet(g)
 			if err != nil {
 				return err
 			}
-			return listTree(cmd.OutOrStdout(), tr, mods, &flags)
+			var tree *tui.TreeTree
+			if flags.changed {
+				tree = tui.NewModifiedTree(tr, mods)
+			} else {
+				tree = tui.NewTree(tr, mods)
+			}
+			return tui.Run(tree)
 		},
 		ValidArgsFunction: lsCompletionFunc(cli),
 	}
 	f := c.Flags()
 	f.BoolVarP(&flags.flat, "flat", "f", flags.flat, "print as flat list")
+	f.BoolVar(&flags.tree, "tree", flags.tree, "show files as a simple tree")
 	f.BoolVarP(&flags.untracked, "untracked", "u", flags.untracked, "show only untracked files")
-	f.BoolVar(&flags.changed, "changed", flags.changed, "display changed files")
+	f.BoolVarP(&flags.changed, "changed", "M", flags.changed, "display changed files")
 	f.BoolVar(&flags.noPager, "no-pager", flags.noPager, "disable the automatic pager")
+	f.BoolVar(&test, "test", test, "")
+	_ = f.MarkHidden("test")
 	return c
 }
 
@@ -132,10 +149,7 @@ func listFlat(out io.Writer, files []string, flags *lsFlags) error {
 		if f[0] == '/' {
 			f = f[1:]
 		}
-		_, err = buf.WriteString(fmt.Sprintf("%s\n", f))
-		if err != nil {
-			return err
-		}
+		fmt.Fprintf(&buf, "%s\n", f)
 	}
 	pager := stdio.FindPager()
 	if pager == "" {
@@ -174,8 +188,7 @@ func untracked(
 	if err := cmd.Run(); err != nil {
 		return err
 	}
-	files := strings.Split(b.String(), "\x00")
-	for _, f := range files {
+	for f := range strings.SplitSeq(b.String(), "\x00") {
 		if len(f) == 0 {
 			continue
 		}
@@ -247,6 +260,13 @@ func modifiedSet(g *git.Git) (modSet, error) {
 	}
 	for _, f := range files {
 		m[f.Name] = f.Type
+		parts := strings.Split(f.Name, string(filepath.Separator))
+		if len(parts) > 1 {
+			for i := 1; i < len(parts); i++ {
+				p := strings.Join(parts[:i], string(filepath.Separator))
+				m[p] = tui.ModifiedInDirectory
+			}
+		}
 	}
 	return m, nil
 }

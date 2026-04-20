@@ -179,11 +179,34 @@ func newUtilCommands(opts *Options) []*cobra.Command {
 				git := opts.git()
 				git.SetOut(cmd.OutOrStdout())
 				c := git.Cmd(
-					"log", "--all", "--graph", "--abbrev-commit",
-					"--decorate", "--oneline",
-					"--date", "format:%a %b %d %l:%M:%S %P %Y",
+					"log",
+					"--all",
+					"--graph",
+					"--abbrev-commit",
+					"--decorate",
+					"--oneline",
+					"--date",
+					"format:%a %b %d %l:%M:%S %P %Y",
+					"--pretty=tformat:%C(auto)%h%Creset %Cblue(%cd)%Creset%C(auto)%d%Creset %s %C(magenta)[%cn]%Creset",
 				)
 				return execute(c)
+			},
+		},
+		{
+			Use:    "test",
+			Hidden: true,
+			RunE: func(cmd *cobra.Command, args []string) error {
+				git := opts.git()
+				git.SetOut(cmd.OutOrStdout())
+				config, err := git.Config()
+				if err != nil {
+					return err
+				}
+				for k, v := range config {
+					fmt.Println(k, v)
+				}
+				fmt.Println("default branch:", config["init.defaultbranch"])
+				return nil
 			},
 		},
 		{

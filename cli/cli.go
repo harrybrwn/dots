@@ -1,3 +1,4 @@
+// Package cli holds the dots cli.
 package cli
 
 import (
@@ -64,10 +65,6 @@ func (o *Options) HasReadme() bool {
 
 func (o *Options) excludesFile() string {
 	return filepath.Join(o.ConfigDir, "ignore")
-}
-
-func (o *Options) globalConfigFile() string {
-	return filepath.Join(o.ConfigDir, "gitconfig")
 }
 
 func (o *Options) applyUserTo(g interface{ AppendPersistentArgs(...string) }) {
@@ -420,7 +417,19 @@ func sync(g *git.Git) error {
 	if err != nil {
 		return err
 	}
-	return execute(g.Cmd("push", "origin", branch))
+	err = execute(g.Cmd("push", "origin", branch))
+	if err != nil {
+		return err
+	}
+	head, err := g.Head()
+	if err != nil {
+		return err
+	}
+	err = g.CreateRemoteRef("origin", branch, head)
+	if err != nil {
+		return err
+	}
+	return nil
 }
 
 func NewGitCmd(r dotfiles.Repo) *cobra.Command {
@@ -454,7 +463,7 @@ func dirContainsPath(dir, path string) bool {
 	}
 	N := max(len(base), len(test))
 	n := min(len(base), len(test))
-	for i := 0; i < N; i++ {
+	for i := range N {
 		if i >= n {
 			return true
 		}
@@ -463,20 +472,6 @@ func dirContainsPath(dir, path string) bool {
 		}
 	}
 	return false
-}
-
-func max(a, b int) int {
-	if a > b {
-		return a
-	}
-	return b
-}
-
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
 }
 
 func writeGitignore(opts *Options) error {
@@ -718,9 +713,8 @@ func init() {
 	})
 }
 
-// This is a template for cobra commands that more
-// closely imitates the style of the go command help
-// message.
+// IndentedCobraUsageTemplate is a template for cobra commands that more closely
+// imitates the style of the go command help message.
 var IndentedCobraUsageTemplate = `Usage:{{if .Runnable}}
 
 	{{.UseLine}}{{end}}{{if .HasAvailableSubCommands}}

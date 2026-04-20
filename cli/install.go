@@ -85,6 +85,19 @@ files). Also optionally clone from a remove source before installing.
 			if err != nil {
 				return err
 			}
+			branch, err := git.CurrentBranch()
+			if err != nil {
+				return err
+			}
+			head, err := git.Head()
+			if err != nil {
+				return err
+			}
+			// Create remote ref so that it shows up in git logs.
+			err = git.CreateRemoteRef("origin", branch, head)
+			if err != nil {
+				return err
+			}
 			return
 		},
 	}
