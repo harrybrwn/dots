@@ -38,6 +38,9 @@ func NewLSCmd(cli *Options) *cobra.Command {
 		Use:   "ls",
 		Short: "List the files being tracked",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if test {
+				return tui.Run(tui.NewOSTree())
+			}
 			g := cli.Git()
 			if flags.untracked {
 				dir := "."

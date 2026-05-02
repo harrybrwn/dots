@@ -10,7 +10,6 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/pkg/errors"
 	"github.com/spf13/cobra"
 
 	"github.com/harrybrwn/dots/cli/dotfiles"
@@ -186,32 +185,6 @@ func NewVersionCmd() *cobra.Command {
 	}
 }
 
-func NewAddCmd(opts *Options) *cobra.Command {
-	var up bool // --update
-	c := &cobra.Command{
-		Use:   "add <file...>",
-		Short: "Add new files",
-		Args:  cobra.MinimumNArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			g := opts.Git()
-			if up {
-				updated, err := getUpdated(g, opts, nil)
-				if err != nil {
-					return errors.Wrap(err, "could not list updated files")
-				}
-				args = append(args, updated...)
-			}
-			return add(opts, g, args)
-		},
-		ValidArgsFunction: func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
-			return nil, cobra.ShellCompDirectiveDefault
-		},
-	}
-	c.Flags().BoolVarP(&up, "update", "u", up, "update any changed files as well as add new ones")
-	opts.addUserFlags(c.Flags())
-	return c
-}
-
 func NewRemoveCmd(opts *Options) *cobra.Command {
 	c := &cobra.Command{
 		Use:   "rm <name...>",
@@ -242,154 +215,6 @@ func NewRemoveCmd(opts *Options) *cobra.Command {
 	return c
 }
 
-func NewUpdateCmd(opts *Options) *cobra.Command {
-	c := cobra.Command{
-		Use:   "update [files...]",
-		Short: "Update files in local git repo that have been modified",
-		Long: "" +
-			"Update is similar to 'add' in that it updates\n" +
-			"the internal repository with new changes except that\n" +
-			"it automatically updates files that have already\n" +
-			"been added and have changed since the last update.",
-		Example: "  $ dots update\n" +
-			"  $ dots update ~/.bashrc",
-		SuggestFor: []string{"add"},
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return update(opts, args)
-		},
-		ValidArgsFunction: modifiedCompletionFunc(opts),
-	}
-	opts.addUserFlags(c.Flags())
-	return &c
-}
-
-func NewSyncCmd(r dotfiles.Repo) *cobra.Command {
-	c := &cobra.Command{
-		Use:   "sync",
-		Short: "Sync with the remote repository",
-		Long:  "Download updates in the remote repo and push local updates to the remote repo.",
-		RunE: func(*cobra.Command, []string) error {
-			return sync(r.Git())
-		},
-	}
-	return c
-}
-
-func NewCloneCmd(opts *Options) *cobra.Command {
-	var force bool
-	c := &cobra.Command{
-		Use:   "clone <uri>",
-		Short: "Clone a remote repository",
-		Args:  cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			git := opts.Git()
-			if git.Exists() {
-				return errors.New("git repository already exists here")
-			}
-			if !force && exists(opts.repo()) {
-				return fmt.Errorf("repository %q already exists", opts.repo())
-			}
-			return clone(opts, git, args[0])
-		},
-	}
-	c.Flags().BoolVarP(&force, "force", "f", force, "overwrite the existing repo")
-	return c
-}
-
-func clone(opts *Options, git *git.Git, repoSource string) error {
-	// TODO after cloning run `git branch --set-upstream-to=origin/<branch> master`
-	// to set the default branch so that we can have clean git pulls.
-	//
-	// Or better yet, do this by changing .git/config to have:
-	//	[branch "master"]
-	//		remote = origin
-	//		merge = refs/heads/master
-	//
-	// This can also be made smarter by using the default branch name
-	// that is used right after cloning the repo.
-	//
-	// Also add ~/.dots and ~/.config/dots to the repo's gitignore
-	err := execute(git.Cmd("clone", "--bare", repoSource, opts.repo()))
-	if err != nil {
-		return err
-	}
-	// Configure git to ignore files that are not being tracked
-	err = git.ConfigLocalSet("status.showUntrackedFiles", "no")
-	if err != nil {
-		return err
-	}
-	err = git.ConfigLocalSet("core.excludesFile", opts.excludesFile())
-	if err != nil {
-		return err
-	}
-
-	err = writeGitignore(opts)
-	if err != nil {
-		return err
-	}
-	err = writeGlobalConfig(opts)
-	if err != nil {
-		return err
-	}
-	return nil
-}
-
-func add(opts *Options, git *git.Git, files []string) (err error) {
-	if !git.Exists() {
-		err = git.InitBare()
-		if err != nil {
-			return err
-		}
-	}
-	if err = cleanPaths(files); err != nil {
-		return err
-	}
-	err = git.Add(files...)
-	if err != nil {
-		return err
-	}
-	opts.applyUserTo(git)
-	return git.Commit(commitMessage("add", files))
-}
-
-func update(opts *Options, updated []string) (err error) {
-	g := opts.git()
-	err = g.Cmd("pull").Run()
-	if err != nil {
-		return errors.Wrap(err, "failed to pull before updating")
-	}
-	updated, err = getUpdated(g, opts, updated)
-	if err != nil {
-		return err
-	}
-	err = g.Add(updated...)
-	if err != nil {
-		return err
-	}
-	opts.applyUserTo(g)
-	g.SetOut(os.Stdout)
-	return g.Commit(commitMessage("update", updated))
-}
-
-func getUpdated(g *git.Git, opts *Options, updated []string) ([]string, error) {
-	if len(updated) > 0 {
-		for i, f := range updated {
-			updated[i] = filepath.Join(g.WorkingTree(), f)
-		}
-	}
-	objects, err := g.Modifications()
-	if err != nil {
-		return nil, err
-	}
-	for _, o := range objects {
-		updated = append(updated, filepath.Join(g.WorkingTree(), o.Name))
-	}
-	if opts.HasReadme() {
-		updated = removeReadme(opts.Root, updated)
-	}
-	return updated, nil
-}
-
 func removeReadme(base string, files []string) []string {
 	for i, f := range files {
 		p, err := filepath.Rel(base, f)
@@ -401,35 +226,6 @@ func removeReadme(base string, files []string) []string {
 		}
 	}
 	return files
-}
-
-func sync(g *git.Git) error {
-	var (
-		err error
-	)
-	if !g.HasRemote() {
-		return errors.New("repo does not have a remote repo")
-	}
-	if err = execute(g.Cmd("pull")); err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: %s\n", err)
-	}
-	branch, err := g.CurrentBranch()
-	if err != nil {
-		return err
-	}
-	err = execute(g.Cmd("push", "origin", branch))
-	if err != nil {
-		return err
-	}
-	head, err := g.Head()
-	if err != nil {
-		return err
-	}
-	err = g.CreateRemoteRef("origin", branch, head)
-	if err != nil {
-		return err
-	}
-	return nil
 }
 
 func NewGitCmd(r dotfiles.Repo) *cobra.Command {
@@ -447,31 +243,6 @@ func NewGitCmd(r dotfiles.Repo) *cobra.Command {
 		DisableFlagParsing: true,
 		RunE:               fn,
 	}
-}
-
-func dirContainsPath(dir, path string) bool {
-	base := strings.Split(dir, string(filepath.Separator))
-	test := strings.Split(path, string(filepath.Separator))
-	if dir == "/" {
-		base = []string{""}
-	}
-	if path == "/" {
-		test = []string{""}
-	}
-	if len(base) == 0 || len(test) == 0 || len(base) > len(test) {
-		return false
-	}
-	N := max(len(base), len(test))
-	n := min(len(base), len(test))
-	for i := range N {
-		if i >= n {
-			return true
-		}
-		if base[i] != test[i] {
-			return false
-		}
-	}
-	return false
 }
 
 func writeGitignore(opts *Options) error {
@@ -520,18 +291,29 @@ func writeGitignore(opts *Options) error {
 	return nil
 }
 
-func writeGlobalConfig(opts *Options) error {
-	filename := filepath.Join(opts.ConfigDir, "gitconfig")
-	if !exists(filename) {
-		f, err := os.OpenFile(filename, os.O_CREATE|os.O_RDWR, 0644)
-		if err != nil {
-			return err
+func dirContainsPath(dir, path string) bool {
+	base := strings.Split(dir, string(filepath.Separator))
+	test := strings.Split(path, string(filepath.Separator))
+	if dir == "/" {
+		base = []string{""}
+	}
+	if path == "/" {
+		test = []string{""}
+	}
+	if len(base) == 0 || len(test) == 0 || len(base) > len(test) {
+		return false
+	}
+	N := max(len(base), len(test))
+	n := min(len(base), len(test))
+	for i := range N {
+		if i >= n {
+			return true
 		}
-		if err = f.Close(); err != nil {
-			return err
+		if base[i] != test[i] {
+			return false
 		}
 	}
-	return nil
+	return false
 }
 
 type completeFunc func(
@@ -547,17 +329,6 @@ func gitFilesCompletionFunc(r dotfiles.Repo) completeFunc {
 		toComplete string,
 	) ([]string, cobra.ShellCompDirective) {
 		files, err := r.Git().LsFiles()
-		if err != nil {
-			return nil, cobra.ShellCompDirectiveError
-		}
-		return files, cobra.ShellCompDirectiveDefault
-	}
-}
-
-func modifiedCompletionFunc(r dotfiles.Repo) completeFunc {
-	return func(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {
-		git := r.Git()
-		files, err := git.ModifiedFiles()
 		if err != nil {
 			return nil, cobra.ShellCompDirectiveError
 		}

@@ -10,6 +10,8 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/harrybrwn/dots/cli/dotfiles"
+	"github.com/harrybrwn/dots/pkg/stdio"
+	"github.com/harrybrwn/dots/tui"
 )
 
 func NewInitCmd(opts *Options) *cobra.Command {
@@ -150,4 +152,16 @@ func NewStatusCmd(r dotfiles.Repo) *cobra.Command {
 		},
 	}
 	return c
+}
+
+func NewTUILogsCmd(cli *Options) *cobra.Command {
+	c := cobra.Command{
+		Use:   "tui-logs",
+		Short: "Tail the tui logs.",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			path := tui.LogFilepath()
+			return stdio.Page("tail -f "+path, os.Stdout, os.Stdin)
+		},
+	}
+	return &c
 }
