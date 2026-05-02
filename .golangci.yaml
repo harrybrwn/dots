@@ -21,3 +21,9 @@ linters:
         - (*database/sql.Rows).Close
         - (github.com/harrybrwn/db.Rows).Close
         - (*github.com/fsnotify/fsnotify.Watcher).Close
+  exclusions:
+    rules:
+      # Exclude some linters from running on tests files
+      - path: \.gen\.go
+        linters:
+          - misspell
