@@ -3,3 +3,6 @@
 /dist/
 /dots-*-*/
 /testdata/
+
+# Generated Code
+pkg/nerdfonts/*.gen.go

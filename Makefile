@@ -46,9 +46,10 @@ uninstall:
 	$(RM) $(BASH_COMP)/$(NAME)
 	$(RM) ~/.local/share/man/man1/dots*
 
-.PHONY: snapshot dist
+.PHONY: snapshot
 snapshot:
 	goreleaser release --skip-publish --skip-announce --auto-snapshot --rm-dist
+.PHONY: dist
 dist:
 	goreleaser release --clean --skip=publish --snapshot
 
@@ -113,3 +114,10 @@ $(PKG).deb: $(PKG)/usr/bin/$(NAME)
 
 %/bin/$(NAME): $(SOURCE)
 	CGO_ENABLED=0 go build $(GOFLAGS) -o $@ ./cmd/dots
+
+.PHONY: generate
+generate: pkg/nerdfonts/glyfs.gen.go
+
+.PHONY: pkg/nerdfonts/glyfs.gen.go
+pkg/nerdfonts/glyfs.gen.go:
+	go run ./cmd/generate-nerdfont -out $@ -pkg nerdfonts
