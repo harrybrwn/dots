@@ -2,12 +2,15 @@
 package tui
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"log/slog"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/bubbles/help"
 	tea "github.com/charmbracelet/bubbletea"
@@ -19,12 +22,17 @@ const LogFilename = "dots-tui.log"
 func LogFilepath() string {
 	cacheHome := os.Getenv("XDG_CACHE_HOME")
 	if len(cacheHome) == 0 {
-		cacheHome = filepath.Join(os.Getenv("HOME"), ".cache")
+		home := os.Getenv("HOME")
+		if len(home) == 0 {
+			cacheHome = "/var/log"
+		} else {
+			cacheHome = filepath.Join(os.Getenv("HOME"), ".cache")
+		}
 	}
 	return filepath.Join(cacheHome, LogFilename)
 }
 
-func Run(tree Tree) error {
+func Run(ctx context.Context, tree Tree, preview Preview) error {
 	f, err := os.OpenFile(
 		LogFilepath(),
 		os.O_CREATE|os.O_APPEND|os.O_WRONLY,
@@ -35,28 +43,50 @@ func Run(tree Tree) error {
 	}
 	defer f.Close()
 	l := logger(f)
+	l.Info("starting tui")
 	slog.SetDefault(l)
+	keys := DefaultKeys(DefaultHelpIcons())
+	if preview == nil {
+		preview = NewStatPreview(keys)
+	}
+	settings := Settings{
+		Icons:  DefaultIcons(),
+		Colors: DefaultColors(),
+		Keys:   keys,
+		Styles: DefaultStyles(),
+		Popups: DefaultPopupSettings(),
+	}
 	m := Model{
+		logger:   l,
+		settings: settings,
 		tree: treeModel{
-			Preview: NewStatPreview(),
-			tree:    tree,
-			logger:  l,
-			settings: Settings{
-				Icons:  DefaultIcons(),
-				Colors: DefaultColors(),
-				Keys:   DefaultKeys(DefaultHelpIcons()),
-				Styles: DefaultStyles(),
-			},
+			Preview:  preview,
+			tree:     tree,
+			logger:   l,
+			settings: settings,
 		},
+		errStyle: lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(lipgloss.Color("1")),
 	}
 	initialModel(&m.tree)
-	p := tea.NewProgram(&m, tea.WithAltScreen())
+
+	ctx, cancel := signal.NotifyContext(ctx, os.Interrupt)
+	defer cancel()
+	p := tea.NewProgram(&m, tea.WithContext(ctx), tea.WithAltScreen())
 	_, err = p.Run()
 	return err
 }
 
 type Model struct {
-	tree treeModel
+	logger        *slog.Logger
+	settings      Settings
+	tree          treeModel
+	popup         string
+	height, width int
+
+	errors   []ErrorPopup
+	errStyle lipgloss.Style
 }
 
 func (m *Model) Init() tea.Cmd {
@@ -64,36 +94,151 @@ func (m *Model) Init() tea.Cmd {
 }
 
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	return m.tree.Update(msg)
+	var cmd tea.Cmd
+	cmds := make([]tea.Cmd, 0, 1)
+	switch msg := msg.(type) {
+	case ErrorMsg:
+		m.logger.Error("ErrorMsg", "error", msg.Error)
+		m.errors = append(m.errors, ErrorPopup{msg: msg})
+		duration := m.settings.Popups.ErrorDismissDuration
+		cmds = append(cmds, ClearErrorAfter(duration))
+	case ClearErrorMsg:
+		if len(m.errors) > 0 {
+			m.errors = m.errors[1:]
+		}
+	case PopupMsg:
+		m.popup = string(msg)
+	case ClearPopupMsg:
+		m.popup = ""
+	case tea.WindowSizeMsg:
+		m.height = msg.Height
+		m.width = msg.Width
+		m.logger.Info("win size", "h", msg.Height, "w", msg.Width)
+		_, cmd = m.tree.Update(msg)
+		cmds = append(cmds, cmd)
+	case tea.KeyMsg:
+		_, cmd = m.tree.Update(msg)
+		cmds = append(cmds, cmd)
+	default:
+		_, cmd = m.tree.Update(msg)
+		cmds = append(cmds, cmd)
+	}
+	return m, tea.Batch(cmds...)
 }
 
 func (m *Model) View() string {
-	return m.tree.View()
+	view := m.tree.View()
+	treeWidth := lipgloss.Width(view)
+	now := time.Now()
+	if len(m.errors) > 0 {
+		errorsHeight := 1
+		var buf strings.Builder
+		for i := range m.errors {
+			if errorsHeight >= m.height {
+				m.logger.Info("exceeded height limit", "errors", errorsHeight, "limit", m.height)
+				break
+			}
+			if m.errors[i].shownAt == nil {
+				m.errors[i].shownAt = &now
+			}
+			errStyleWidth := m.errStyle.GetBorderLeftSize() + m.errStyle.GetBorderRightSize()
+			rawErrStr := strings.TrimRight(m.errors[i].msg.Error.Error(), "\n \t")
+			errWidth := min(m.width-treeWidth-errStyleWidth, lipgloss.Width(rawErrStr))
+			e := titledTopBorder(m.errStyle, lipgloss.Left, "Error", errWidth) + "\n" + m.errStyle.
+				BorderTop(false).
+				Width(errWidth).
+				MaxWidth(m.width-treeWidth).
+				Render(rawErrStr)
+			errorsHeight += lipgloss.Height(e)
+			errmsg := lipgloss.Place(
+				m.width-treeWidth,
+				lipgloss.Height(e),
+				lipgloss.Right,
+				lipgloss.Top,
+				e,
+			)
+			buf.WriteString(errmsg)
+			if i < len(m.errors)-1 {
+				buf.WriteByte('\n')
+			}
+		}
+		view = lipgloss.JoinHorizontal(lipgloss.Top, view, buf.String())
+	}
+	return view
+}
+
+type ErrorPopup struct {
+	msg     ErrorMsg
+	shownAt *time.Time
+}
+
+func titledTopBorder(style lipgloss.Style, position lipgloss.Position, title string, bodyWidth int) string {
+	border := style.GetBorderStyle()
+	var buf strings.Builder
+	buf.WriteString(border.TopLeft)
+	if len(title) > 0 {
+		switch position {
+		case lipgloss.Right:
+			lineWidth := bodyWidth - len(title) - 3
+			buf.WriteString(strings.Repeat(border.Top, lineWidth))
+			buf.WriteByte(' ')
+			buf.WriteString(title)
+			buf.WriteByte(' ')
+			buf.WriteString(border.Top)
+		case lipgloss.Left:
+			buf.WriteString(border.Top)
+			buf.WriteByte(' ')
+			buf.WriteString(title)
+			buf.WriteByte(' ')
+			lineWidth := bodyWidth - len(title) - 3
+			buf.WriteString(strings.Repeat(border.Top, lineWidth))
+		case lipgloss.Center:
+			fallthrough
+		default:
+			lineWidth := max(0, (bodyWidth-len(title))/2)
+			buf.WriteString(strings.Repeat(border.Top, lineWidth-1))
+			buf.WriteByte(' ')
+			buf.WriteString(title)
+			buf.WriteByte(' ')
+			if len(title)%2 == 0 {
+				lineWidth -= 1
+			}
+			buf.WriteString(strings.Repeat(border.Top, lineWidth))
+		}
+	} else {
+		buf.WriteString(strings.Repeat(border.Top, bodyWidth))
+	}
+	buf.WriteString(border.TopRight)
+	return lipgloss.NewStyle().
+		Foreground(style.GetBorderTopForeground()).
+		Background(style.GetBorderTopBackground()).
+		Render(buf.String())
 }
 
 // initialModel sets up the root directory
 func initialModel(m *treeModel) *treeModel {
-	// width, height, err := term.GetSize(0)
 	root, err := m.tree.Root()
 	if err != nil {
 		panic(err)
 	}
-	m.entries = make([]*treeEntry, 1, 16)
-	m.entries[0] = &treeEntry{
-		TreeEntry: TreeEntry{
-			Path:  root.Path,
-			Name:  root.Name,
-			IsDir: true,
-		},
-		depth:    0,
-		expanded: true,
+	m.entries = make([]*TreeEntry, 1, 16)
+	m.entries[0] = &TreeEntry{
+		Path:  root.Path,
+		Name:  root.Name,
+		IsDir: true,
+		state: NodeStateExpanded,
+		depth: 0,
 	}
 	leaves, err := m.tree.Expand(root.Path)
 	if err == nil {
 		for _, leaf := range leaves {
-			m.entries = append(m.entries, &treeEntry{
-				TreeEntry: leaf,
-				depth:     1,
+			m.entries = append(m.entries, &TreeEntry{
+				Path:  leaf.Path,
+				Name:  leaf.Name,
+				IsDir: leaf.IsDir,
+				Style: leaf.Style,
+				state: NodeStateCollapsed,
+				depth: 1,
 			})
 		}
 	}
@@ -147,51 +292,20 @@ func (h *Help) View() string {
 	return h.cached
 }
 
-func NewStatPreview() *StatPreview {
-	return &StatPreview{
-		root: os.Getenv("HOME"),
+// PartialModel is a [bubbletea.Model] that is missing an Init method.
+type PartialModel interface {
+	Update(tea.Msg) (tea.Model, tea.Cmd)
+	View() string
+}
+
+// NoOpInitModel adds an Init method to a [PartialModel].
+type NoOpInitModel struct{ PartialModel }
+
+func (nim *NoOpInitModel) Init() tea.Cmd { return nil }
+
+func Eprintf(format string, args ...any) tea.Cmd {
+	return func() tea.Msg {
+		fmt.Fprintf(os.Stderr, format, args...)
+		return nil
 	}
 }
-
-type StatPreview struct {
-	root    string
-	current *TreeEntry
-}
-
-func (sv *StatPreview) View() string {
-	path := filepath.Join(sv.root, sv.current.Path)
-	stat, err := os.Stat(path)
-	if err != nil {
-		return fmt.Sprintf("Error: %v", err)
-	}
-	var b strings.Builder
-	fmt.Fprintf(&b, "path:     %s\n", path)
-	fmt.Fprintf(&b, "name:     %s\n", stat.Name())
-	fmt.Fprintf(&b, "size:     %d\n", stat.Size())
-	fmt.Fprintf(&b, "mode:     %s\n", stat.Mode())
-	fmt.Fprintf(&b, "modified: %s\n", stat.ModTime().String())
-	fmt.Fprintln(&b)
-	content, err := os.ReadFile(path)
-	if err != nil {
-		return fmt.Sprintf("Error: %v", err)
-	}
-	fmt.Fprintf(&b, "%s\n", content)
-	return b.String()
-}
-
-func (sv *StatPreview) IsOpen() bool { return sv.current != nil }
-
-func (sv *StatPreview) Open(e *TreeEntry) {
-	sv.current = e
-}
-
-func (sv *StatPreview) Close() {
-	sv.current = nil
-}
-
-type NoPreview struct{ path string }
-
-func (np *NoPreview) View() string      { return np.path }
-func (np *NoPreview) Open(e *TreeEntry) { np.path = e.Path }
-func (np *NoPreview) Close()            { np.path = "" }
-func (np *NoPreview) IsOpen() bool      { return len(np.path) > 0 }

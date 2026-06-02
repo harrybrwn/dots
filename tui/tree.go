@@ -17,6 +17,8 @@ type TreeEntry struct {
 	Name  string
 	IsDir bool
 	Style *lipgloss.Style
+	state NodeState
+	depth uint16
 }
 
 type Tree interface {

@@ -28,6 +28,7 @@ func NewUtilCmd(opts *Options) *cobra.Command {
 		NewCatCmd(opts),
 		NewSetSSHKeyCmd(opts),
 		NewTUILogsCmd(opts),
+		NewStatusCmd(opts),
 	)
 	c.AddCommand(newUtilCommands(opts)...)
 	return c

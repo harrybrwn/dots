@@ -7,6 +7,8 @@ import (
 	"os"
 	"path/filepath"
 	"text/template"
+
+	"github.com/harrybrwn/x/nerdfont"
 )
 
 const estimatedGlyphCount = 12_000
@@ -26,15 +28,11 @@ func main() {
 	out := getOut(*outpath)
 	defer verboseClose(out)
 
-	metadata, glist, err := glyphsList()
+	metadata, glist, err := nerdfont.GetGlyphs()
 	if err != nil {
 		log.Fatal(err)
 	}
-	templ, err := newTempl()
-	if err != nil {
-		log.Fatal(err)
-	}
-	err = templ.Execute(out, Data{
+	err = nerdfont.Generate(out, &nerdfont.GenerateTemplateData{
 		Package:         *pkgname,
 		Metadata:        *metadata,
 		Glyphs:          glist,

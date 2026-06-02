@@ -39,7 +39,7 @@ func NewLSCmd(cli *Options) *cobra.Command {
 		Short: "List the files being tracked",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if test {
-				return tui.Run(tui.NewOSTree())
+				return tui.Run(cmd.Context(), tui.NewOSTree(), nil)
 			}
 			g := cli.Git()
 			if flags.untracked {
@@ -103,12 +103,17 @@ func NewLSCmd(cli *Options) *cobra.Command {
 			} else {
 				tree = tui.NewTree(tr, mods)
 			}
-			return tui.Run(tree)
+			return tui.Run(
+				cmd.Context(),
+				tree,
+				tui.NewExecPreview(g.Cmd("-c", "delta.paging=always", "diff"), mods),
+			)
 		},
 		ValidArgsFunction: lsCompletionFunc(cli),
 	}
 	f := c.Flags()
 	f.BoolVarP(&flags.flat, "flat", "f", flags.flat, "print as flat list")
+	f.BoolVarP(&flags.flat, "list", "l", flags.flat, "show simple list")
 	f.BoolVar(&flags.tree, "tree", flags.tree, "show files as a simple tree")
 	f.BoolVarP(&flags.untracked, "untracked", "u", flags.untracked, "show only untracked files")
 	f.BoolVarP(&flags.changed, "changed", "M", flags.changed, "display changed files")

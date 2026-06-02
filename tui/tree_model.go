@@ -12,26 +12,22 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-type Preview interface {
-	View() string
-	Open(*TreeEntry)
-	IsOpen() bool
-	Close()
-}
+type NodeState uint8
 
-type treeEntry struct {
-	TreeEntry
-	expanded bool
-	depth    int
-}
+const (
+	NodeStateCollapsed NodeState = 0
+	NodeStateExpanded  NodeState = 1 << (iota - 1)
+	NodeStatePreviewClosed
+	NodeStatePreviewClosedOpen
+)
 
 type treeModel struct {
 	tree     Tree
 	logger   *slog.Logger
 	settings Settings
 	// state
-	entries  []*treeEntry
-	selected int // currently selected tree entry index
+	entries  []*TreeEntry
+	selected int // currently selected entry index
 	cursor   int // cursor's y-axis terminal cell position
 	width    int
 	height   int
@@ -91,6 +87,10 @@ func (m *treeModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.previewBox.SetContent(m.Preview.View())
 		}
 
+	case PreviewCloseMsg:
+		m.Preview.Close()
+		return m, nil
+
 	case tea.KeyMsg:
 		keys := m.settings.Keys
 		switch {
@@ -129,38 +129,41 @@ func (m *treeModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case key.Matches(msg, keys.ToggleDir):
 			sel := m.entries[m.selected]
 			if sel.IsDir {
-				if sel.expanded {
+				switch sel.state {
+				case NodeStateExpanded:
 					m.collapse(m.selected)
-				} else {
+				default:
 					m.expand(m.selected)
 				}
 			} else {
 				m.log().Info("selected", "path", sel.Path)
-				m.Preview.Open(&sel.TreeEntry)
+				m.Preview.Open(sel)
+				return m.Preview.Update(msg)
 			}
+
 		case key.Matches(msg, keys.ExpandDir):
 			sel := m.entries[m.selected]
 			if sel.IsDir {
-				if !sel.expanded {
+				if sel.state != NodeStateExpanded {
 					m.expand(m.selected)
 				}
 			} else {
-				m.Preview.Open(&sel.TreeEntry)
+				m.Preview.Open(sel)
+				return m.Preview.Update(msg)
 			}
+
 		case key.Matches(msg, keys.CollapseDir):
 			if m.Preview.IsOpen() {
 				m.Preview.Close()
 			}
 			sel := m.entries[m.selected]
-			if sel.IsDir && sel.expanded {
-				if sel.expanded {
-					m.collapse(m.selected)
-				}
+			if sel.IsDir && sel.state == NodeStateExpanded {
+				m.collapse(m.selected)
 			} else {
 				// find the first open parent above the current selected entry
 				for i := m.selected; i >= 0; i-- {
 					e := m.entries[i]
-					if e.IsDir && e.depth < sel.depth && e.expanded {
+					if e.IsDir && e.depth < sel.depth && e.state == NodeStateExpanded {
 						m.collapse(i)
 						m.selected = i
 						break
@@ -172,7 +175,7 @@ func (m *treeModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.log().Debug("expand all")
 		expandAll:
 			for i := len(m.entries) - 1; i >= 0; i-- {
-				if m.entries[i].IsDir && !m.entries[i].expanded {
+				if m.entries[i].IsDir && m.entries[i].state != NodeStateExpanded {
 					m.expand(i)
 					goto expandAll
 				}
@@ -183,7 +186,7 @@ func (m *treeModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.log().Debug("collapse all")
 		collapseAll:
 			for i := range m.entries {
-				if m.entries[i].IsDir && m.entries[i].expanded {
+				if m.entries[i].IsDir && m.entries[i].state == NodeStateExpanded {
 					m.collapse(i)
 					goto collapseAll
 				}
@@ -249,7 +252,7 @@ func (m *treeModel) View() string {
 		nameStyle lipgloss.Style
 		cursor    string
 		icon      string
-		e         *treeEntry
+		e         *TreeEntry
 
 		h     = m.height - m.help.Height()
 		start = max(m.selected-m.cursor, 0)
@@ -278,7 +281,7 @@ func (m *treeModel) View() string {
 
 		// Icon logic
 		if e.IsDir {
-			if e.expanded {
+			if e.state == NodeStateExpanded {
 				icon = m.settings.Icons.expanded(m.selected == i)
 			} else {
 				icon = m.settings.Icons.collapsed(m.selected == i)
@@ -296,7 +299,7 @@ func (m *treeModel) View() string {
 		}
 
 		// Indentation based on depth
-		indent := strings.Repeat("  ", e.depth)
+		indent := strings.Repeat("  ", int(e.depth))
 
 		line := fmt.Sprintf(
 			" %s %s%s %s",
@@ -346,21 +349,19 @@ func (m *treeModel) expand(index int) {
 		m.err = err
 		return
 	}
-	children := make([]*treeEntry, len(leaves))
-	for i, leaf := range leaves {
-		children[i] = &treeEntry{
-			TreeEntry: leaf,
-			depth:     root.depth + 1,
-			expanded:  false,
-		}
+	children := make([]*TreeEntry, len(leaves))
+	for i := range leaves {
+		leaves[i].depth = root.depth + 1
+		leaves[i].state = NodeStateCollapsed
+		children[i] = &leaves[i]
 	}
-	newEntries := make([]*treeEntry, 0, len(m.entries)+len(children))
+	newEntries := make([]*TreeEntry, 0, len(m.entries)+len(children))
 	// Insert children after the parent
 	newEntries = append(newEntries, m.entries[:index+1]...)
 	newEntries = append(newEntries, children...)
 	newEntries = append(newEntries, m.entries[index+1:]...)
 	m.entries = newEntries
-	root.expanded = true
+	root.state = NodeStateExpanded
 	m.widestPath = 0
 	for _, e := range m.entries {
 		m.widestPath = max(m.widestPath, m.lineWidth(e))
@@ -371,7 +372,7 @@ func (m *treeModel) expand(index int) {
 // collapse removes all nested children from the slice
 func (m *treeModel) collapse(index int) {
 	e := m.entries[index]
-	e.expanded = false
+	e.state = NodeStateCollapsed
 	start := index + 1
 	end := start
 	for end < len(m.entries) && m.entries[end].depth > e.depth {
@@ -385,10 +386,10 @@ func (m *treeModel) collapse(index int) {
 	m.log().Debug("collapse")
 }
 
-func (m *treeModel) lineWidth(entry *treeEntry) int {
+func (m *treeModel) lineWidth(entry *TreeEntry) int {
 	w := len(entry.Name)
 	w += len(m.settings.Icons.Expanded)
-	w += entry.depth * 2                  // indent
+	w += int(entry.depth) * 2             // indent
 	w += 2 + len(m.settings.Icons.Cursor) // cursor and cursor spacing
 	return w
 }

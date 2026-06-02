@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/viewport"
@@ -14,6 +15,7 @@ type Settings struct {
 	Colors Colors
 	Keys   Keys
 	Styles Styles
+	Popups PopupSettings
 }
 
 type Icons struct {
@@ -295,5 +297,17 @@ func DefaultHelpIcons() HelpIcons {
 		Return: nerdfonts.MdKeyboardReturn,
 		Tab:    nerdfonts.OctTab,
 		Half:   "½", // U+00bd
+	}
+}
+
+type PopupSettings struct {
+	ErrorDismissDuration   time.Duration
+	MessageDismissDuration time.Duration
+}
+
+func DefaultPopupSettings() PopupSettings {
+	return PopupSettings{
+		ErrorDismissDuration:   time.Second * 5,
+		MessageDismissDuration: time.Second * 5,
 	}
 }
